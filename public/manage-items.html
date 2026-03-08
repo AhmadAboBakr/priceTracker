@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Manage Items — UAE Grocery Price Tracker</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    .page-wrapper { max-width: 800px; margin: 0 auto; padding: 24px 32px; }
+    .back-link {
+      display: inline-flex; align-items: center; gap: 6px;
+      color: rgba(255,255,255,0.8); text-decoration: none; font-size: 0.875rem; margin-bottom: 8px;
+    }
+    .back-link:hover { color: white; }
+
+    .card {
+      background: var(--card-bg); border-radius: var(--radius);
+      padding: 24px; box-shadow: var(--shadow); margin-bottom: 20px;
+    }
+    .card h2 { font-size: 1.1rem; margin-bottom: 16px; display: flex; align-items: center; gap: 10px; }
+
+    /* ── Add Item Form ─────────────────────────────── */
+    .add-form { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+    .field { display: flex; flex-direction: column; gap: 4px; }
+    .field label {
+      font-size: 0.75rem; font-weight: 600; color: var(--text-secondary);
+      text-transform: uppercase; letter-spacing: 0.03em;
+    }
+    .field input, .field select {
+      padding: 10px 14px; border: 1px solid var(--border); border-radius: 8px;
+      font-size: 0.9rem; color: var(--text); background: white;
+    }
+    .field input:focus, .field select:focus {
+      outline: none; border-color: var(--carrefour-color);
+      box-shadow: 0 0 0 3px rgba(0,75,135,0.1);
+    }
+    .btn-add {
+      padding: 10px 24px; border: none; border-radius: 8px; height: 42px;
+      background: var(--carrefour-color); color: white; font-weight: 600;
+      font-size: 0.9rem; cursor: pointer; white-space: nowrap;
+    }
+    .btn-add:hover { background: #003a6b; }
+    .btn-add:disabled { background: #aaa; cursor: not-allowed; }
+
+    /* ── Filter Chips ──────────────────────────────── */
+    .filter-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+    .chip {
+      padding: 5px 14px; border-radius: 16px; border: 1px solid var(--border);
+      background: white; font-size: 0.8rem; cursor: pointer; color: var(--text-secondary);
+    }
+    .chip:hover { border-color: var(--carrefour-color); color: var(--carrefour-color); }
+    .chip.active { background: var(--carrefour-color); color: white; border-color: var(--carrefour-color); }
+
+    /* ── Items List ─────────────────────────────────── */
+    .item-row {
+      display: flex; align-items: center; gap: 12px;
+      padding: 10px 0; border-bottom: 1px solid var(--border);
+    }
+    .item-row:last-child { border-bottom: none; }
+    .item-name { font-weight: 500; flex: 1; }
+    .item-cat {
+      font-size: 0.7rem; padding: 2px 10px; border-radius: 10px;
+      background: var(--bg); color: var(--text-secondary); font-weight: 500;
+    }
+    .btn-delete {
+      background: none; border: 1px solid transparent; cursor: pointer; color: #bbb;
+      font-size: 0.85rem; padding: 4px 10px; border-radius: 6px;
+    }
+    .btn-delete:hover { color: var(--negative); border-color: rgba(220,38,38,0.2); background: rgba(220,38,38,0.05); }
+
+    .empty-msg { text-align: center; padding: 32px; color: var(--text-secondary); }
+
+    /* ── Toast ──────────────────────────────────────── */
+    .toast {
+      position: fixed; bottom: 24px; right: 24px; padding: 14px 24px; border-radius: 8px;
+      color: white; font-weight: 500; font-size: 0.9rem;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+      transform: translateY(100px); opacity: 0; transition: all 0.3s ease; z-index: 2000;
+    }
+    .toast.show { transform: translateY(0); opacity: 1; }
+    .toast.success { background: #16a34a; }
+    .toast.error { background: #dc2626; }
+
+    @media (max-width: 768px) {
+      .page-wrapper { padding: 16px; }
+      .add-form { flex-direction: column; }
+      .field { width: 100%; }
+      .btn-add { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="header-content">
+      <a href="/" class="back-link">&larr; Dashboard</a>
+      <h1>Manage Items</h1>
+      <p class="subtitle">Add or remove items you want to track</p>
+    </div>
+  </header>
+
+  <main class="page-wrapper">
+    <!-- Add new item -->
+    <div class="card">
+      <h2>Add New Item</h2>
+      <div class="add-form">
+        <div class="field" style="flex:2;min-width:180px">
+          <label for="itemName">Item Name</label>
+          <input type="text" id="itemName" placeholder="e.g. Al Ain Milk 1L">
+        </div>
+        <div class="field" style="flex:1;min-width:140px">
+          <label for="itemCat">Category</label>
+          <select id="itemCat">
+            <option value="Dairy & Eggs">Dairy & Eggs</option>
+            <option value="Bread & Bakery">Bread & Bakery</option>
+            <option value="Rice & Grains">Rice & Grains</option>
+            <option value="Cooking Oil">Cooking Oil</option>
+            <option value="Condiments">Condiments</option>
+            <option value="Protein">Protein</option>
+            <option value="Seafood">Seafood</option>
+            <option value="Canned Goods">Canned Goods</option>
+            <option value="Pasta & Noodles">Pasta & Noodles</option>
+            <option value="Beverages">Beverages</option>
+            <option value="Frozen">Frozen</option>
+            <option value="Fresh Produce">Fresh Produce</option>
+            <option value="Household">Household</option>
+            <option value="Snacks">Snacks</option>
+            <option value="Other">Other</option>
+          </select>
+        </div>
+        <button class="btn-add" id="btnAdd">+ Add</button>
+      </div>
+    </div>
+
+    <!-- Current items -->
+    <div class="card">
+      <h2>Your Items <span class="badge" id="countBadge">0</span></h2>
+      <div class="filter-chips" id="chips"></div>
+      <div id="itemsList"></div>
+    </div>
+  </main>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    let items = [];
+    let activeCat = 'all';
+
+    const itemName  = document.getElementById('itemName');
+    const itemCat   = document.getElementById('itemCat');
+    const btnAdd    = document.getElementById('btnAdd');
+    const chips     = document.getElementById('chips');
+    const itemsList = document.getElementById('itemsList');
+    const countBadge = document.getElementById('countBadge');
+    const toast     = document.getElementById('toast');
+
+    async function loadItems() {
+      try {
+        const res = await fetch('/api/items');
+        const data = await res.json();
+        items = Array.isArray(data) ? data : [];
+      } catch (e) {
+        console.error('Failed to load items', e);
+        items = [];
+      }
+      buildChips();
+      render();
+    }
+
+    function buildChips() {
+      const cats = [...new Set(items.map(i => i.category))].sort();
+      let html = `<button class="chip ${activeCat === 'all' ? 'active' : ''}" data-c="all">All (${items.length})</button>`;
+      for (const c of cats) {
+        const n = items.filter(i => i.category === c).length;
+        html += `<button class="chip ${activeCat === c ? 'active' : ''}" data-c="${c}">${c} (${n})</button>`;
+      }
+      chips.innerHTML = html;
+    }
+
+    chips.addEventListener('click', e => {
+      const btn = e.target.closest('.chip');
+      if (!btn) return;
+      activeCat = btn.dataset.c;
+      chips.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+      btn.classList.add('active');
+      render();
+    });
+
+    function render() {
+      const filtered = activeCat === 'all' ? items : items.filter(i => i.category === activeCat);
+      countBadge.textContent = filtered.length;
+
+      if (filtered.length === 0) {
+        itemsList.innerHTML = '<div class="empty-msg">No items yet. Add your first one above!</div>';
+        return;
+      }
+
+      let html = '';
+      for (const item of filtered) {
+        html += `
+          <div class="item-row">
+            <span class="item-name">${item.name}</span>
+            <span class="item-cat">${item.category}</span>
+            <button class="btn-delete" data-id="${item.id}" data-name="${item.name}">Remove</button>
+          </div>`;
+      }
+      itemsList.innerHTML = html;
+    }
+
+    // Add item
+    btnAdd.addEventListener('click', async () => {
+      const name = itemName.value.trim();
+      const category = itemCat.value;
+      if (!name) { showToast('Enter an item name', 'error'); return; }
+
+      btnAdd.disabled = true;
+      try {
+        const res = await fetch('/api/items', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, category, unit: 'unit', standardSize: '' }),
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          showToast(`Added "${name}"`, 'success');
+          itemName.value = '';
+          await loadItems();
+          // Switch to the new item's category
+          activeCat = category;
+          buildChips();
+          render();
+        } else {
+          showToast(data.error || 'Failed to add', 'error');
+        }
+      } catch (e) {
+        showToast('Network error', 'error');
+      } finally {
+        btnAdd.disabled = false;
+      }
+    });
+
+    itemName.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { e.preventDefault(); btnAdd.click(); }
+    });
+
+    // Remove item
+    itemsList.addEventListener('click', async e => {
+      const btn = e.target.closest('.btn-delete');
+      if (!btn) return;
+      const id = parseInt(btn.dataset.id);
+      const name = btn.dataset.name;
+      if (!confirm(`Remove "${name}"? This also deletes its price history.`)) return;
+
+      try {
+        const res = await fetch(`/api/items/${id}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          showToast(`Removed "${name}"`, 'success');
+          items = items.filter(i => i.id !== id);
+          buildChips();
+          render();
+        } else {
+          showToast(data.error || 'Failed to remove', 'error');
+        }
+      } catch (e) {
+        showToast('Network error', 'error');
+      }
+    });
+
+    function showToast(msg, type) {
+      toast.textContent = msg;
+      toast.className = `toast ${type} show`;
+      setTimeout(() => toast.classList.remove('show'), 3500);
+    }
+
+    loadItems();
+  </script>
+</body>
+</html>
