@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Add Prices — UAE Grocery Price Tracker</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    .page-wrapper { max-width: 1100px; margin: 0 auto; padding: 24px 32px; }
+
+    .back-link {
+      display: inline-flex; align-items: center; gap: 6px;
+      color: rgba(255,255,255,0.8); text-decoration: none; font-size: 0.875rem; margin-bottom: 8px;
+    }
+    .back-link:hover { color: white; }
+
+    .form-section {
+      background: var(--card-bg); border-radius: var(--radius);
+      padding: 24px; box-shadow: var(--shadow); margin-bottom: 20px;
+    }
+    .form-section h2 { font-size: 1.1rem; margin-bottom: 16px; display: flex; align-items: center; gap: 10px; }
+
+    .form-row { display: flex; gap: 16px; margin-bottom: 16px; flex-wrap: wrap; }
+    .form-group { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 180px; }
+    .form-group label {
+      font-size: 0.8rem; font-weight: 600; color: var(--text-secondary);
+      text-transform: uppercase; letter-spacing: 0.03em;
+    }
+    .form-group select, .form-group input[type="date"], .form-group input[type="text"] {
+      padding: 10px 14px; border: 1px solid var(--border); border-radius: 8px;
+      font-size: 0.9rem; color: var(--text); background: white;
+    }
+    .form-group select:focus, .form-group input:focus {
+      outline: none; border-color: var(--carrefour-color);
+      box-shadow: 0 0 0 3px rgba(0,75,135,0.1);
+    }
+
+    /* ── Add Item Inline Form ─────────────────────── */
+    .add-item-row {
+      display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap;
+      padding: 16px; background: var(--bg); border-radius: 8px; margin-bottom: 16px;
+    }
+    .add-item-row .form-group { min-width: 140px; }
+    .btn-add-item {
+      padding: 10px 20px; border: none; border-radius: 8px;
+      background: var(--carrefour-color); color: white; font-weight: 600;
+      font-size: 0.85rem; cursor: pointer; white-space: nowrap; height: 40px;
+    }
+    .btn-add-item:hover { background: #003a6b; }
+
+    /* ── Filter Chips ─────────────────────────────── */
+    .filter-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+    .filter-chip {
+      padding: 4px 14px; border-radius: 16px; border: 1px solid var(--border);
+      background: white; font-size: 0.8rem; cursor: pointer;
+      transition: all 0.15s; color: var(--text-secondary);
+    }
+    .filter-chip:hover { border-color: var(--carrefour-color); color: var(--carrefour-color); }
+    .filter-chip.active { background: var(--carrefour-color); color: white; border-color: var(--carrefour-color); }
+
+    /* ── Table ─────────────────────────────────────── */
+    .items-table-wrapper { overflow-x: auto; }
+    .items-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+    .items-table thead th {
+      text-align: left; padding: 10px 12px; font-size: 0.75rem;
+      text-transform: uppercase; letter-spacing: 0.05em;
+      color: var(--text-secondary); border-bottom: 2px solid var(--border); font-weight: 600;
+    }
+    .items-table thead th.store-col { text-align: center; min-width: 110px; }
+    .items-table thead th.store-col .store-dot { vertical-align: middle; }
+    .items-table tbody tr { border-bottom: 1px solid var(--border); }
+    .items-table tbody tr:hover { background: rgba(0,0,0,0.02); }
+    .items-table td { padding: 8px 12px; vertical-align: middle; }
+    .items-table .item-name-cell { font-weight: 500; }
+    .items-table .category-tag {
+      display: inline-block; font-size: 0.7rem; padding: 2px 8px;
+      border-radius: 10px; background: var(--bg); color: var(--text-secondary); font-weight: 500;
+    }
+    .items-table .last-price { font-size: 0.75rem; color: var(--text-secondary); text-align: center; }
+
+    .price-input {
+      width: 90px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px;
+      font-size: 0.85rem; text-align: right; color: var(--text);
+    }
+    .price-input:focus { outline: none; border-color: var(--carrefour-color); box-shadow: 0 0 0 2px rgba(0,75,135,0.1); }
+    .price-input::placeholder { color: #ccc; }
+
+    .store-price-cell { text-align: center; }
+    .store-price-cell .last-price { display: block; margin-top: 2px; }
+
+    /* ── Actions Column ────────────────────────────── */
+    .btn-remove-item {
+      background: none; border: none; cursor: pointer; color: #ccc;
+      font-size: 1.1rem; padding: 4px; border-radius: 4px; line-height: 1;
+    }
+    .btn-remove-item:hover { color: var(--negative); background: rgba(220,38,38,0.08); }
+
+    /* ── Submit Bar ────────────────────────────────── */
+    .submit-bar {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-top: 20px; flex-wrap: wrap; gap: 12px;
+    }
+    .filled-count { font-size: 0.85rem; color: var(--text-secondary); }
+    .filled-count strong { color: var(--text); }
+
+    .btn-submit {
+      padding: 12px 32px; border: none; border-radius: 8px;
+      font-size: 0.95rem; font-weight: 600; cursor: pointer;
+      transition: background 0.2s, transform 0.1s;
+    }
+    .btn-submit:active { transform: scale(0.97); }
+    .btn-submit.primary { background: linear-gradient(135deg, #16a34a, #15803d); color: white; }
+    .btn-submit.primary:hover { background: linear-gradient(135deg, #15803d, #166534); }
+    .btn-submit.primary:disabled { background: #ccc; cursor: not-allowed; }
+
+    .btn-clear {
+      padding: 10px 20px; border: 1px solid var(--border); border-radius: 8px;
+      background: white; color: var(--text-secondary); font-size: 0.85rem; cursor: pointer;
+    }
+    .btn-clear:hover { background: var(--bg); }
+
+    /* ── Toast ─────────────────────────────────────── */
+    .toast {
+      position: fixed; bottom: 24px; right: 24px; padding: 14px 24px; border-radius: 8px;
+      color: white; font-weight: 500; font-size: 0.9rem;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+      transform: translateY(100px); opacity: 0; transition: all 0.3s ease; z-index: 2000;
+    }
+    .toast.show { transform: translateY(0); opacity: 1; }
+    .toast.success { background: #16a34a; }
+    .toast.error { background: #dc2626; }
+
+    @media (max-width: 768px) {
+      .page-wrapper { padding: 16px; }
+      .form-row { flex-direction: column; }
+      .form-group { min-width: 100%; }
+      .price-input { width: 70px; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="header-content">
+      <a href="/" class="back-link">&larr; Back to Dashboard</a>
+      <h1>Add Prices Manually</h1>
+      <p class="subtitle">Enter prices for all stores at once</p>
+    </div>
+  </header>
+
+  <main class="page-wrapper">
+    <!-- Date picker -->
+    <div class="form-section">
+      <h2>Date</h2>
+      <div class="form-row">
+        <div class="form-group" style="max-width:250px">
+          <label for="dateInput">Price Date</label>
+          <input type="date" id="dateInput">
+        </div>
+      </div>
+    </div>
+
+    <!-- Items & Prices -->
+    <div class="form-section">
+      <h2>
+        Items & Prices
+        <span class="badge" id="itemCount"></span>
+      </h2>
+
+      <!-- Add New Item -->
+      <div class="add-item-row">
+        <div class="form-group" style="flex:2">
+          <label>New Item Name</label>
+          <input type="text" id="newItemName" placeholder="e.g. Al Ain Milk 1L">
+        </div>
+        <div class="form-group" style="flex:1">
+          <label>Category</label>
+          <select id="newItemCategory">
+            <option value="Dairy & Eggs">Dairy & Eggs</option>
+            <option value="Bread & Bakery">Bread & Bakery</option>
+            <option value="Rice & Grains">Rice & Grains</option>
+            <option value="Cooking Oil">Cooking Oil</option>
+            <option value="Condiments">Condiments</option>
+            <option value="Protein">Protein</option>
+            <option value="Seafood">Seafood</option>
+            <option value="Canned Goods">Canned Goods</option>
+            <option value="Pasta & Noodles">Pasta & Noodles</option>
+            <option value="Beverages">Beverages</option>
+            <option value="Frozen">Frozen</option>
+            <option value="Fresh Produce">Fresh Produce</option>
+            <option value="Household">Household</option>
+            <option value="Snacks">Snacks</option>
+            <option value="Other">Other</option>
+          </select>
+        </div>
+        <button class="btn-add-item" id="btnAddItem">+ Add Item</button>
+      </div>
+
+      <!-- Category Filter -->
+      <div class="filter-chips" id="filterChips"></div>
+
+      <!-- Table -->
+      <div class="items-table-wrapper">
+        <table class="items-table">
+          <thead>
+            <tr>
+              <th>Item</th>
+              <th>Category</th>
+              <th class="store-col" id="storeHead1"></th>
+              <th class="store-col" id="storeHead2"></th>
+              <th class="store-col" id="storeHead3"></th>
+              <th style="width:36px"></th>
+            </tr>
+          </thead>
+          <tbody id="itemsBody"></tbody>
+        </table>
+      </div>
+
+      <div class="submit-bar">
+        <div>
+          <span class="filled-count"><strong id="filledCount">0</strong> prices filled</span>
+          &nbsp;
+          <button class="btn-clear" id="btnClear">Clear All</button>
+        </div>
+        <button class="btn-submit primary" id="btnSubmit" disabled>Save Prices</button>
+      </div>
+    </div>
+  </main>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    // ── State ────────────────────────────────────────
+    let stores = [];
+    let items = [];
+    let latestPricesMap = {};
+    let activeCategory = 'all';
+
+    const dateInput      = document.getElementById('dateInput');
+    const itemsBody      = document.getElementById('itemsBody');
+    const filterChips    = document.getElementById('filterChips');
+    const filledCount    = document.getElementById('filledCount');
+    const itemCount      = document.getElementById('itemCount');
+    const btnSubmit      = document.getElementById('btnSubmit');
+    const btnClear       = document.getElementById('btnClear');
+    const btnAddItem     = document.getElementById('btnAddItem');
+    const newItemName    = document.getElementById('newItemName');
+    const newItemCategory = document.getElementById('newItemCategory');
+    const toast          = document.getElementById('toast');
+
+    dateInput.value = new Date().toISOString().slice(0, 10);
+
+    const STORE_CLASSES = ['lulu', 'carrefour', 'coop'];
+    const STORE_COLORS  = { 'Lulu Hypermarket': 'lulu', 'Carrefour UAE': 'carrefour', 'Union Coop': 'coop' };
+
+    // ── Init ────────────────────────────────────────
+    async function init() {
+      const [storesRes, itemsRes] = await Promise.all([
+        fetch('/api/stores').then(r => r.json()),
+        fetch('/api/items').then(r => r.json()),
+      ]);
+      stores = storesRes;
+      items  = itemsRes;
+
+      // Set up table headers per store
+      stores.forEach((s, i) => {
+        const th = document.getElementById(`storeHead${i + 1}`);
+        if (th) {
+          const cls = STORE_COLORS[s.name] || STORE_CLASSES[i] || '';
+          th.innerHTML = `<span class="store-dot ${cls}"></span> ${s.name.replace('Hypermarket','').replace('UAE','').trim()}`;
+        }
+      });
+
+      // Build latest-price map
+      for (const item of items) {
+        for (const storeId of Object.keys(item.prices)) {
+          if (item.prices[storeId]) {
+            latestPricesMap[`${item.id}-${storeId}`] = item.prices[storeId].price;
+          }
+        }
+      }
+
+      buildCategoryChips();
+      renderItems();
+    }
+
+    function buildCategoryChips() {
+      const categories = [...new Set(items.map(i => i.category))].sort();
+      let html = '<button class="filter-chip active" data-cat="all">All</button>';
+      for (const cat of categories) {
+        html += `<button class="filter-chip" data-cat="${cat}">${cat}</button>`;
+      }
+      filterChips.innerHTML = html;
+    }
+
+    filterChips.addEventListener('click', (e) => {
+      const btn = e.target.closest('.filter-chip');
+      if (!btn) return;
+      activeCategory = btn.dataset.cat;
+      filterChips.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
+      btn.classList.add('active');
+      renderItems();
+    });
+
+    // ── Render ───────────────────────────────────────
+    function renderItems() {
+      const filtered = activeCategory === 'all'
+        ? items
+        : items.filter(i => i.category === activeCategory);
+
+      // Save existing input values before re-render
+      const savedValues = {};
+      itemsBody.querySelectorAll('.price-input').forEach(inp => {
+        if (inp.value) savedValues[inp.dataset.key] = inp.value;
+      });
+
+      let html = '';
+      for (const item of filtered) {
+        html += `<tr>`;
+        html += `<td class="item-name-cell">${item.name}</td>`;
+        html += `<td><span class="category-tag">${item.category}</span></td>`;
+
+        for (const store of stores) {
+          const lastPrice = latestPricesMap[`${item.id}-${store.id}`];
+          const lastStr   = lastPrice != null ? lastPrice.toFixed(2) : '';
+          const key       = `${item.id}-${store.id}`;
+          const saved     = savedValues[key] || '';
+
+          html += `
+            <td class="store-price-cell">
+              <input type="number" class="price-input" data-key="${key}"
+                     data-item="${item.id}" data-store="${store.id}"
+                     placeholder="${lastStr || '0.00'}" step="0.01" min="0" value="${saved}">
+              ${lastStr ? `<span class="last-price">${lastStr}</span>` : ''}
+            </td>`;
+        }
+
+        html += `<td><button class="btn-remove-item" data-id="${item.id}" title="Remove item">&times;</button></td>`;
+        html += `</tr>`;
+      }
+
+      itemsBody.innerHTML = html;
+      itemCount.textContent = filtered.length;
+      updateFilledCount();
+
+      itemsBody.querySelectorAll('.price-input').forEach(inp => {
+        inp.addEventListener('input', updateFilledCount);
+      });
+    }
+
+    function updateFilledCount() {
+      const inputs = itemsBody.querySelectorAll('.price-input');
+      let filled = 0;
+      inputs.forEach(inp => { if (inp.value && parseFloat(inp.value) > 0) filled++; });
+      filledCount.textContent = filled;
+      btnSubmit.disabled = filled === 0;
+    }
+
+    // ── Add New Item ─────────────────────────────────
+    btnAddItem.addEventListener('click', async () => {
+      const name = newItemName.value.trim();
+      const category = newItemCategory.value;
+      if (!name) { showToast('Enter an item name', 'error'); return; }
+
+      btnAddItem.disabled = true;
+      try {
+        const res = await fetch('/api/items', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, category, unit: 'unit', standardSize: '' }),
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          showToast(`Added "${name}"`, 'success');
+          newItemName.value = '';
+          // Refresh items
+          const updatedItems = await fetch('/api/items').then(r => r.json());
+          items = updatedItems;
+          // Refresh price map
+          latestPricesMap = {};
+          for (const item of items) {
+            for (const sid of Object.keys(item.prices)) {
+              if (item.prices[sid]) latestPricesMap[`${item.id}-${sid}`] = item.prices[sid].price;
+            }
+          }
+          buildCategoryChips();
+          // Activate the new item's category
+          activeCategory = category;
+          filterChips.querySelectorAll('.filter-chip').forEach(c => {
+            c.classList.toggle('active', c.dataset.cat === category);
+          });
+          renderItems();
+        } else {
+          showToast(data.error || 'Failed to add item', 'error');
+        }
+      } catch (err) {
+        showToast('Network error', 'error');
+      } finally {
+        btnAddItem.disabled = false;
+      }
+    });
+
+    // Allow Enter key in the name field
+    newItemName.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); btnAddItem.click(); }
+    });
+
+    // ── Remove Item ──────────────────────────────────
+    itemsBody.addEventListener('click', async (e) => {
+      const btn = e.target.closest('.btn-remove-item');
+      if (!btn) return;
+      const id = parseInt(btn.dataset.id, 10);
+      const item = items.find(i => i.id === id);
+      if (!confirm(`Remove "${item?.name || id}" from tracking? This deletes its price history.`)) return;
+
+      try {
+        const res = await fetch(`/api/items/${id}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          showToast('Item removed', 'success');
+          items = items.filter(i => i.id !== id);
+          buildCategoryChips();
+          renderItems();
+        } else {
+          showToast(data.error || 'Failed to remove', 'error');
+        }
+      } catch (err) {
+        showToast('Network error', 'error');
+      }
+    });
+
+    // ── Clear All ────────────────────────────────────
+    btnClear.addEventListener('click', () => {
+      itemsBody.querySelectorAll('.price-input').forEach(inp => inp.value = '');
+      updateFilledCount();
+    });
+
+    // ── Save Prices ──────────────────────────────────
+    btnSubmit.addEventListener('click', async () => {
+      const date = dateInput.value;
+      if (!date) { showToast('Pick a date first', 'error'); return; }
+
+      const inputs = itemsBody.querySelectorAll('.price-input');
+      const prices = [];
+      inputs.forEach(inp => {
+        const val = parseFloat(inp.value);
+        if (val > 0) {
+          prices.push({
+            itemId:  parseInt(inp.dataset.item, 10),
+            storeId: parseInt(inp.dataset.store, 10),
+            price:   val,
+            date:    date + 'T12:00:00.000Z',
+          });
+        }
+      });
+
+      if (prices.length === 0) { showToast('No prices to save', 'error'); return; }
+
+      btnSubmit.disabled = true;
+      btnSubmit.textContent = 'Saving...';
+
+      try {
+        const res = await fetch('/api/prices', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prices }),
+        });
+        const data = await res.json();
+
+        if (res.ok && data.success) {
+          showToast(`Saved ${data.inserted} price(s)!`, 'success');
+          // Clear filled inputs
+          inputs.forEach(inp => { if (parseFloat(inp.value) > 0) inp.value = ''; });
+          updateFilledCount();
+
+          // Refresh latest prices
+          const updatedItems = await fetch('/api/items').then(r => r.json());
+          items = updatedItems;
+          latestPricesMap = {};
+          for (const item of items) {
+            for (const sid of Object.keys(item.prices)) {
+              if (item.prices[sid]) latestPricesMap[`${item.id}-${sid}`] = item.prices[sid].price;
+            }
+          }
+          renderItems();
+        } else {
+          showToast(data.error || 'Failed to save', 'error');
+        }
+      } catch (err) {
+        showToast('Network error — could not save', 'error');
+      } finally {
+        btnSubmit.disabled = false;
+        btnSubmit.textContent = 'Save Prices';
+      }
+    });
+
+    // ── Toast ────────────────────────────────────────
+    function showToast(msg, type) {
+      toast.textContent = msg;
+      toast.className = `toast ${type} show`;
+      setTimeout(() => toast.classList.remove('show'), 3500);
+    }
+
+    init();
+  </script>
+</body>
+</html>

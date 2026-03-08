@@ -1,0 +1,278 @@
+:root {
+  --lulu-color: #FF6B35;
+  --carrefour-color: #004B87;
+  --coop-color: #00B050;
+  --bg: #f5f7fa;
+  --card-bg: #ffffff;
+  --text: #1a1a2e;
+  --text-secondary: #6b7280;
+  --border: #e5e7eb;
+  --positive: #16a34a;
+  --negative: #dc2626;
+  --radius: 12px;
+  --shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.6;
+}
+
+/* ── Header ─────────────────────────────────────── */
+header {
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+  color: white;
+  padding: 24px 32px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+header h1 { font-size: 1.5rem; font-weight: 700; }
+.subtitle { color: rgba(255,255,255,0.7); font-size: 0.875rem; }
+
+.controls {
+  display: flex;
+  gap: 12px;
+}
+
+.controls select {
+  padding: 8px 16px;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.2);
+  background: rgba(255,255,255,0.1);
+  color: white;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.controls select option { color: #1a1a2e; background: white; }
+
+.add-prices-link {
+  padding: 8px 18px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #16a34a, #15803d);
+  color: white;
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background 0.2s, transform 0.1s;
+}
+.add-prices-link:hover { background: linear-gradient(135deg, #15803d, #166534); }
+.add-prices-link:active { transform: scale(0.97); }
+
+/* ── Stats Row ──────────────────────────────────── */
+.stats-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  padding: 24px 32px;
+}
+
+.stat-card {
+  background: var(--card-bg);
+  border-radius: var(--radius);
+  padding: 20px;
+  box-shadow: var(--shadow);
+  text-align: center;
+}
+
+.stat-card.stat-highlight {
+  background: linear-gradient(135deg, #16a34a 0%, #15803d 100%);
+  color: white;
+}
+
+.stat-label { font-size: 0.8rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
+.stat-highlight .stat-label { color: rgba(255,255,255,0.8); }
+.stat-value { font-size: 1.75rem; font-weight: 700; margin: 4px 0; }
+.stat-sub { font-size: 0.75rem; color: var(--text-secondary); }
+.stat-highlight .stat-sub { color: rgba(255,255,255,0.7); }
+
+/* ── Charts ─────────────────────────────────────── */
+.chart-section, .items-section {
+  padding: 0 32px 24px;
+}
+
+.chart-section h2, .items-section h2 {
+  font-size: 1.1rem;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.badge {
+  background: var(--carrefour-color);
+  color: white;
+  font-size: 0.7rem;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-weight: 600;
+}
+
+.chart-container {
+  background: var(--card-bg);
+  border-radius: var(--radius);
+  padding: 20px;
+  box-shadow: var(--shadow);
+  position: relative;
+  height: 350px;
+}
+
+.chart-container canvas {
+  max-height: 100%;
+}
+
+/* ── Items Grid ─────────────────────────────────── */
+.items-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 16px;
+}
+
+.item-card {
+  background: var(--card-bg);
+  border-radius: var(--radius);
+  padding: 16px;
+  box-shadow: var(--shadow);
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.15s;
+  border-left: 4px solid var(--border);
+}
+
+.item-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+
+.item-card .item-name {
+  font-weight: 600;
+  font-size: 0.95rem;
+  margin-bottom: 2px;
+}
+
+.item-card .item-meta {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+}
+
+.price-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.price-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.85rem;
+}
+
+.store-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  margin-right: 6px;
+}
+
+.store-dot.lulu { background: var(--lulu-color); }
+.store-dot.carrefour { background: var(--carrefour-color); }
+.store-dot.coop { background: var(--coop-color); }
+
+.price-value { font-weight: 600; }
+.price-change { font-size: 0.75rem; font-weight: 600; }
+.price-change.up { color: var(--negative); }
+.price-change.down { color: var(--positive); }
+.price-change.flat { color: var(--text-secondary); }
+
+.no-data { color: var(--text-secondary); font-style: italic; font-size: 0.8rem; }
+
+.loading { text-align: center; color: var(--text-secondary); padding: 40px; }
+
+/* ── Category Colors (left border) ──────────────── */
+.item-card[data-category="Dairy & Eggs"] { border-left-color: #f59e0b; }
+.item-card[data-category="Bread & Bakery"] { border-left-color: #d97706; }
+.item-card[data-category="Rice & Grains"] { border-left-color: #84cc16; }
+.item-card[data-category="Cooking Oil"] { border-left-color: #eab308; }
+.item-card[data-category="Condiments"] { border-left-color: #f97316; }
+.item-card[data-category="Protein"] { border-left-color: #ef4444; }
+.item-card[data-category="Seafood"] { border-left-color: #06b6d4; }
+.item-card[data-category="Canned Goods"] { border-left-color: #8b5cf6; }
+.item-card[data-category="Pasta & Noodles"] { border-left-color: #ec4899; }
+.item-card[data-category="Beverages"] { border-left-color: #3b82f6; }
+.item-card[data-category="Frozen"] { border-left-color: #6366f1; }
+.item-card[data-category="Fresh Produce"] { border-left-color: #22c55e; }
+.item-card[data-category="Household"] { border-left-color: #a855f7; }
+
+/* ── Modal ──────────────────────────────────────── */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  backdrop-filter: blur(4px);
+}
+
+.modal {
+  background: var(--card-bg);
+  border-radius: var(--radius);
+  width: min(90vw, 700px);
+  max-height: 85vh;
+  overflow-y: auto;
+  padding: 24px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.modal-close {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  cursor: pointer;
+  color: var(--text-secondary);
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.modal-close:hover { background: var(--bg); }
+
+.modal-info {
+  margin-top: 16px;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+/* ── Footer ─────────────────────────────────────── */
+footer {
+  text-align: center;
+  padding: 24px 32px;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+/* ── Responsive ─────────────────────────────────── */
+@media (max-width: 768px) {
+  header { padding: 16px; }
+  .stats-row { padding: 16px; }
+  .chart-section, .items-section { padding: 0 16px 16px; }
+  .items-grid { grid-template-columns: 1fr; }
+  .chart-container { height: 250px; }
+}

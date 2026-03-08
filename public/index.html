@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>UAE Grocery Price Tracker</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <header>
+    <div class="header-content">
+      <h1>UAE Grocery Price Tracker</h1>
+      <p class="subtitle">Daily price monitoring across Lulu, Carrefour & Union Coop</p>
+    </div>
+    <div class="controls">
+      <a href="/add-prices.html" class="add-prices-link">+ Add Prices</a>
+      <select id="daysFilter">
+        <option value="7">Last 7 days</option>
+        <option value="30" selected>Last 30 days</option>
+        <option value="90">Last 90 days</option>
+        <option value="180">Last 6 months</option>
+      </select>
+      <select id="categoryFilter">
+        <option value="all">All Categories</option>
+      </select>
+    </div>
+  </header>
+
+  <main>
+    <!-- Summary Stats -->
+    <section class="stats-row" id="statsRow">
+      <div class="stat-card" id="statLulu">
+        <div class="stat-label">Lulu Basket</div>
+        <div class="stat-value" id="statLuluVal">--</div>
+        <div class="stat-sub">AED</div>
+      </div>
+      <div class="stat-card" id="statCarrefour">
+        <div class="stat-label">Carrefour Basket</div>
+        <div class="stat-value" id="statCarrefourVal">--</div>
+        <div class="stat-sub">AED</div>
+      </div>
+      <div class="stat-card" id="statCoop">
+        <div class="stat-label">Union Coop Basket</div>
+        <div class="stat-value" id="statCoopVal">--</div>
+        <div class="stat-sub">AED</div>
+      </div>
+      <div class="stat-card stat-highlight" id="statCheapest">
+        <div class="stat-label">Cheapest Overall</div>
+        <div class="stat-value" id="statCheapestVal">--</div>
+        <div class="stat-sub" id="statCheapestSub"></div>
+      </div>
+    </section>
+
+    <!-- Basket Trend Chart -->
+    <section class="chart-section">
+      <h2>Shopping Basket Trend</h2>
+      <div class="chart-container">
+        <canvas id="basketChart"></canvas>
+      </div>
+    </section>
+
+    <!-- Items Grid -->
+    <section class="items-section">
+      <h2>Item Prices <span id="itemCount" class="badge"></span></h2>
+      <div class="items-grid" id="itemsGrid">
+        <p class="loading">Loading items...</p>
+      </div>
+    </section>
+
+    <!-- Item Detail Modal -->
+    <div class="modal-overlay" id="modalOverlay" style="display:none">
+      <div class="modal">
+        <div class="modal-header">
+          <h3 id="modalTitle">Item Details</h3>
+          <button class="modal-close" id="modalClose">&times;</button>
+        </div>
+        <div class="chart-container">
+          <canvas id="itemChart"></canvas>
+        </div>
+        <div id="modalInfo" class="modal-info"></div>
+      </div>
+    </div>
+  </main>
+
+  <footer>
+    <p>Prices scraped daily at 8:00 AM GST. Data for informational purposes only.</p>
+  </footer>
+
+  <script src="dashboard.js"></script>
+</body>
+</html>

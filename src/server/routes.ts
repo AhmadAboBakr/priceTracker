@@ -1,0 +1,270 @@
+import { Router, Request, Response } from 'express';
+import { PriceQueries } from '../db/queries';
+import { Database } from 'sql.js';
+
+/** Creates all API routes with the given database connection */
+export function createRouter(db: Database): Router {
+  const router = Router();
+  const queries = new PriceQueries(db);
+
+  // GET /api/stores — all stores
+  router.get('/stores', (_req: Request, res: Response) => {
+    try {
+      const stores = queries.getAllStores();
+      res.json(stores);
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to fetch stores' });
+    }
+  });
+
+  // GET /api/items — all items with latest prices and % change
+  router.get('/items', (_req: Request, res: Response) => {
+    try {
+      const items = queries.getAllItems();
+      const stores = queries.getAllStores();
+      const latestPrices = queries.getLatestPrices();
+      const prevPrices = queries.getPreviousPrices();
+
+      // Build lookup maps
+      const latestMap = new Map<string, any>();
+      for (const p of latestPrices) {
+        latestMap.set(`${p.item_id}-${p.store_id}`, p);
+      }
+      const prevMap = new Map<string, any>();
+      for (const p of prevPrices) {
+        prevMap.set(`${p.item_id}-${p.store_id}`, p);
+      }
+
+      const result = items.map((item: any) => {
+        const prices: Record<number, any> = {};
+        const changes: Record<number, number | null> = {};
+
+        for (const store of stores) {
+          const key = `${item.id}-${store.id}`;
+          const latest = latestMap.get(key);
+          const prev = prevMap.get(key);
+
+          if (latest) {
+            prices[store.id] = {
+              price: latest.price,
+              date: latest.scraped_at,
+            };
+
+            if (prev && prev.price > 0) {
+              changes[store.id] = parseFloat(
+                (((latest.price - prev.price) / prev.price) * 100).toFixed(2)
+              );
+            } else {
+              changes[store.id] = null;
+            }
+          } else {
+            prices[store.id] = null;
+            changes[store.id] = null;
+          }
+        }
+
+        return {
+          id: item.id,
+          name: item.name,
+          category: item.category,
+          unit: item.unit,
+          standardSize: item.standard_size,
+          prices,
+          changes,
+        };
+      });
+
+      res.json(result);
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Failed to fetch items' });
+    }
+  });
+
+  // GET /api/items/:id/history?days=30 — price history for one item
+  router.get('/items/:id/history', (req: Request, res: Response) => {
+    try {
+      const itemId = parseInt(req.params.id, 10);
+      const days = parseInt((req.query.days as string) || '30', 10);
+
+      if (isNaN(itemId)) {
+        res.status(400).json({ error: 'Invalid item ID' });
+        return;
+      }
+
+      const history = queries.getItemHistory(itemId, days);
+
+      // Group by date
+      const dateMap = new Map<string, Record<number, number>>();
+      for (const row of history) {
+        if (!dateMap.has(row.date)) dateMap.set(row.date, {});
+        dateMap.get(row.date)![row.store_id] = row.price;
+      }
+
+      const result = Array.from(dateMap.entries()).map(([date, prices]) => ({
+        date,
+        prices,
+      }));
+
+      res.json(result);
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Failed to fetch item history' });
+    }
+  });
+
+  // GET /api/basket?days=30 — total basket cost per store per day
+  router.get('/basket', (req: Request, res: Response) => {
+    try {
+      const days = parseInt((req.query.days as string) || '30', 10);
+      const history = queries.getBasketHistory(days);
+
+      // Group by date
+      const dateMap = new Map<
+        string,
+        { totals: Record<number, number>; counts: Record<number, number> }
+      >();
+      for (const row of history) {
+        if (!dateMap.has(row.date)) {
+          dateMap.set(row.date, { totals: {}, counts: {} });
+        }
+        const entry = dateMap.get(row.date)!;
+        entry.totals[row.store_id] = row.total;
+        entry.counts[row.store_id] = row.item_count;
+      }
+
+      const result = Array.from(dateMap.entries()).map(
+        ([date, { totals, counts }]) => ({
+          date,
+          totals,
+          itemCount: counts,
+        })
+      );
+
+      res.json(result);
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Failed to fetch basket history' });
+    }
+  });
+
+  // GET /api/stats — aggregated stats per store
+  router.get('/stats', (_req: Request, res: Response) => {
+    try {
+      const stats = queries.getStats();
+      res.json(stats);
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to fetch stats' });
+    }
+  });
+
+  // POST /api/items — create a new tracked item
+  router.post('/items', (req: Request, res: Response) => {
+    try {
+      const { name, category, unit, standardSize } = req.body;
+
+      if (!name || !category) {
+        res.status(400).json({ error: 'Name and category are required' });
+        return;
+      }
+
+      db.run(
+        `INSERT INTO items (name, category, unit, standard_size) VALUES (?, ?, ?, ?)`,
+        [name, category, unit || 'unit', standardSize || '']
+      );
+
+      const row = db.exec(`SELECT last_insert_rowid() as id`);
+      const newId = row[0]?.values[0]?.[0] as number;
+
+      // Create store mappings for all stores
+      const stores = queries.getAllStores();
+      for (const store of stores) {
+        db.run(
+          `INSERT OR IGNORE INTO item_store_mapping (item_id, store_id, search_query) VALUES (?, ?, ?)`,
+          [newId, store.id, name]
+        );
+      }
+
+      const { saveDatabase: save } = require('../db/schema');
+      save(db);
+
+      res.json({ success: true, id: newId, name, category });
+    } catch (err: any) {
+      if (err.message?.includes('UNIQUE constraint')) {
+        res.status(409).json({ error: 'An item with that name already exists' });
+      } else {
+        console.error(err);
+        res.status(500).json({ error: 'Failed to create item' });
+      }
+    }
+  });
+
+  // DELETE /api/items/:id — remove an item from tracking
+  router.delete('/items/:id', (req: Request, res: Response) => {
+    try {
+      const itemId = parseInt(req.params.id, 10);
+      if (isNaN(itemId)) {
+        res.status(400).json({ error: 'Invalid item ID' });
+        return;
+      }
+
+      db.run(`DELETE FROM price_history WHERE item_id = ?`, [itemId]);
+      db.run(`DELETE FROM item_store_mapping WHERE item_id = ?`, [itemId]);
+      db.run(`DELETE FROM items WHERE id = ?`, [itemId]);
+
+      const { saveDatabase: save } = require('../db/schema');
+      save(db);
+
+      res.json({ success: true });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Failed to delete item' });
+    }
+  });
+
+  // POST /api/prices — manually insert prices
+  router.post('/prices', (req: Request, res: Response) => {
+    try {
+      const { prices } = req.body;
+
+      if (!Array.isArray(prices) || prices.length === 0) {
+        res.status(400).json({ error: 'Body must contain a non-empty "prices" array' });
+        return;
+      }
+
+      const now = new Date().toISOString();
+      const records = prices
+        .filter((p: any) => p.itemId && p.storeId && typeof p.price === 'number' && p.price > 0)
+        .map((p: any) => ({
+          itemId: p.itemId,
+          storeId: p.storeId,
+          price: p.price,
+          scrapedAt: p.date || now,
+        }));
+
+      if (records.length === 0) {
+        res.status(400).json({ error: 'No valid price entries found' });
+        return;
+      }
+
+      const inserted = queries.insertPrices(records);
+      res.json({ success: true, inserted });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Failed to insert prices' });
+    }
+  });
+
+  // GET /api/scrape-logs?limit=20 — recent scraper run logs
+  router.get('/scrape-logs', (req: Request, res: Response) => {
+    try {
+      const limit = parseInt((req.query.limit as string) || '20', 10);
+      const logs = queries.getRecentScrapeLogs(limit);
+      res.json(logs);
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to fetch scrape logs' });
+    }
+  });
+
+  return router;
+}
