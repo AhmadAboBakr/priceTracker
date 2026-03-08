@@ -50,26 +50,36 @@ function renderStats() {
     return;
   }
 
-  // Gather all % changes across all stores
+  // Gather per-store stats
   let totalUp = 0, totalDown = 0, totalFlat = 0, totalOOS = 0;
   const allChanges = [];
+  const perStore = {}; // { storeId: { changes: [], up, down, flat, oos, priced } }
+
+  for (const store of stores) {
+    perStore[store.id] = { changes: [], up: 0, down: 0, flat: 0, oos: 0, priced: 0 };
+  }
 
   for (const item of items) {
     for (const store of stores) {
       const priceData = item.prices[store.id];
       const change = item.changes[store.id];
+      const ps = perStore[store.id];
 
       if (priceData && priceData.price === -1) {
         totalOOS++;
+        ps.oos++;
         continue;
       }
       if (!priceData) continue;
 
+      ps.priced++;
+
       if (change !== null && change !== undefined) {
         allChanges.push(change);
-        if (change > 0) totalUp++;
-        else if (change < 0) totalDown++;
-        else totalFlat++;
+        ps.changes.push(change);
+        if (change > 0) { totalUp++; ps.up++; }
+        else if (change < 0) { totalDown++; ps.down++; }
+        else { totalFlat++; ps.flat++; }
       }
     }
   }
@@ -84,15 +94,58 @@ function renderStats() {
 
   let html = '';
 
-  // Card 1: Average price change (inflation indicator)
+  // Card 1: Overall average price change
   html += `
     <div class="stat-card">
-      <div class="stat-label">Avg Price Change</div>
+      <div class="stat-label">Overall Inflation</div>
       <div class="stat-value" style="color:${inflationColor}">${inflationArrow} ${Math.abs(avgChange).toFixed(1)}%</div>
-      <div class="stat-sub">across ${allChanges.length} price points</div>
+      <div class="stat-sub">avg across all stores</div>
     </div>`;
 
-  // Card 2: Items tracked
+  // Per-store inflation cards
+  for (const store of stores) {
+    const ps = perStore[store.id];
+    const storeAvg = ps.changes.length > 0
+      ? (ps.changes.reduce((a, b) => a + b, 0) / ps.changes.length)
+      : null;
+
+    const color = STORE_COLORS[store.id];
+    const css = STORE_CSS[store.id];
+
+    if (storeAvg !== null) {
+      const dir = storeAvg > 0.1 ? 'up' : storeAvg < -0.1 ? 'down' : 'flat';
+      const sColor = dir === 'up' ? 'var(--negative)' : dir === 'down' ? 'var(--positive)' : 'var(--text-secondary)';
+      const sArrow = dir === 'up' ? '&#9650;' : dir === 'down' ? '&#9660;' : '&#8722;';
+
+      let subParts = [];
+      if (ps.up > 0) subParts.push(`${ps.up} up`);
+      if (ps.down > 0) subParts.push(`${ps.down} down`);
+      if (ps.flat > 0) subParts.push(`${ps.flat} flat`);
+      if (ps.oos > 0) subParts.push(`${ps.oos} OOS`);
+
+      html += `
+        <div class="stat-card" style="border-top: 3px solid ${color}">
+          <div class="stat-label"><span class="store-dot ${css}"></span> ${store.name}</div>
+          <div class="stat-value" style="color:${sColor}">${sArrow} ${Math.abs(storeAvg).toFixed(1)}%</div>
+          <div class="stat-sub">${subParts.join(' · ')}</div>
+        </div>`;
+    } else {
+      // No change data yet — show priced count or OOS
+      let sub = '';
+      if (ps.priced > 0) sub = `${ps.priced} items priced`;
+      else if (ps.oos > 0) sub = `${ps.oos} out of stock`;
+      else sub = 'no data yet';
+
+      html += `
+        <div class="stat-card" style="border-top: 3px solid ${color}">
+          <div class="stat-label"><span class="store-dot ${css}"></span> ${store.name}</div>
+          <div class="stat-value" style="color:var(--text-secondary)">&#8722;</div>
+          <div class="stat-sub">${sub}</div>
+        </div>`;
+    }
+  }
+
+  // Items tracked card
   html += `
     <div class="stat-card">
       <div class="stat-label">Items Tracked</div>
@@ -100,7 +153,7 @@ function renderStats() {
       <div class="stat-sub">across ${stores.length} store${stores.length !== 1 ? 's' : ''}</div>
     </div>`;
 
-  // Card 3: Price movement breakdown
+  // Price movement breakdown
   html += `
     <div class="stat-card">
       <div class="stat-label">Price Movements</div>
@@ -112,7 +165,7 @@ function renderStats() {
       <div class="stat-sub">up / down / unchanged</div>
     </div>`;
 
-  // Card 4: Out of stock count (only if > 0)
+  // Out of stock count (only if > 0)
   if (totalOOS > 0) {
     html += `
       <div class="stat-card">
