@@ -77,6 +77,8 @@
       box-shadow: 0 0 0 2px rgba(0,75,135,0.1);
     }
     .price-in::placeholder { color: #ccc; }
+    .price-in.out-of-stock { background: #fef2f2; border-color: #fca5a5; color: #dc2626; }
+    .oos-label { display: block; font-size: 0.7rem; color: #dc2626; margin-top: 2px; font-weight: 500; }
     .last-val { display: block; font-size: 0.7rem; color: var(--text-secondary); margin-top: 2px; }
 
     /* ── Bottom Bar ─────────────────────────────────── */
@@ -286,13 +288,14 @@
         for (const store of stores) {
           const k = `${item.id}-${store.id}`;
           const last = priceMap[k];
-          const lastStr = last != null ? Number(last).toFixed(2) : '';
+          const isOOS = last != null && Number(last) === -1;
+          const lastStr = last != null && !isOOS ? Number(last).toFixed(2) : '';
           const val = saved[k] || '';
 
           html += `<td class="store-cell">
             <input type="number" class="price-in" data-k="${k}" data-i="${item.id}" data-s="${store.id}"
-                   placeholder="${lastStr || '0.00'}" step="0.01" min="0" value="${val}">
-            ${lastStr ? `<span class="last-val">was ${lastStr}</span>` : ''}
+                   placeholder="${lastStr || '0.00'}" step="0.01" min="-1" value="${val}">
+            ${isOOS ? '<span class="oos-label">Out of Stock</span>' : lastStr ? `<span class="last-val">was ${lastStr}</span>` : ''}
           </td>`;
         }
         html += `</tr>`;
@@ -309,7 +312,10 @@
     function countFilled() {
       let n = 0;
       tbody.querySelectorAll('.price-in').forEach(inp => {
-        if (inp.value && parseFloat(inp.value) > 0) n++;
+        const v = parseFloat(inp.value);
+        if (inp.value && (v > 0 || v === -1)) n++;
+        // Visual feedback for -1
+        inp.classList.toggle('out-of-stock', v === -1);
       });
       filledN.textContent = n;
       btnSave.disabled = n === 0;
@@ -329,7 +335,7 @@
       const prices = [];
       tbody.querySelectorAll('.price-in').forEach(inp => {
         const v = parseFloat(inp.value);
-        if (v > 0) {
+        if (v > 0 || v === -1) {
           prices.push({
             itemId:  parseInt(inp.dataset.i),
             storeId: parseInt(inp.dataset.s),
@@ -357,7 +363,8 @@
 
           // Clear saved inputs
           tbody.querySelectorAll('.price-in').forEach(inp => {
-            if (parseFloat(inp.value) > 0) inp.value = '';
+            const v = parseFloat(inp.value);
+            if (v > 0 || v === -1) inp.value = '';
           });
           countFilled();
 

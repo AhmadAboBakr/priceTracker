@@ -50,7 +50,8 @@ export function createRouter(db: Database): Router {
               date: latest.scraped_at,
             };
 
-            if (prev && prev.price > 0) {
+            // Don't calculate % change for out-of-stock entries
+            if (prev && prev.price > 0 && latest.price > 0) {
               changes[store.id] = parseFloat(
                 (((latest.price - prev.price) / prev.price) * 100).toFixed(2)
               );
@@ -234,7 +235,7 @@ export function createRouter(db: Database): Router {
 
       const now = new Date().toISOString();
       const records = prices
-        .filter((p: any) => p.itemId && p.storeId && typeof p.price === 'number' && p.price > 0)
+        .filter((p: any) => p.itemId && p.storeId && typeof p.price === 'number' && (p.price > 0 || p.price === -1))
         .map((p: any) => ({
           itemId: p.itemId,
           storeId: p.storeId,

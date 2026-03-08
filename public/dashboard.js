@@ -127,6 +127,14 @@ function renderItems() {
             </div>`;
           }
 
+          // Handle -1 = out of stock
+          if (priceData.price === -1) {
+            return `<div class="price-row">
+              <span><span class="store-dot ${css}"></span>${STORE_NAMES[store.id]}</span>
+              <span class="no-data" style="color:#dc2626">Out of Stock</span>
+            </div>`;
+          }
+
           let changeHtml = '';
           if (change !== null && change !== undefined) {
             const cls = change > 0 ? 'up' : change < 0 ? 'down' : 'flat';
@@ -274,7 +282,10 @@ function renderItemChart(data, item) {
   const labels = data.map((d) => d.date);
   const datasets = stores.map((store) => ({
     label: store.name,
-    data: data.map((d) => d.prices[store.id] || null),
+    data: data.map((d) => {
+      const p = d.prices[store.id];
+      return (p != null && p !== -1) ? p : null; // Exclude out-of-stock from chart line
+    }),
     borderColor: STORE_COLORS[store.id],
     backgroundColor: STORE_COLORS[store.id] + '20',
     borderWidth: 2,
@@ -284,6 +295,17 @@ function renderItemChart(data, item) {
     pointRadius: 4,
     pointHoverRadius: 7,
   }));
+
+  // Track which dates have OOS for tooltip
+  const oosMap = {};
+  data.forEach((d) => {
+    stores.forEach((store) => {
+      if (d.prices[store.id] === -1) {
+        if (!oosMap[d.date]) oosMap[d.date] = {};
+        oosMap[d.date][store.id] = true;
+      }
+    });
+  });
 
   itemChart = new Chart(ctx, {
     type: 'line',
@@ -296,8 +318,14 @@ function renderItemChart(data, item) {
         legend: { position: 'bottom', labels: { usePointStyle: true } },
         tooltip: {
           callbacks: {
-            label: (ctx) =>
-              `${ctx.dataset.label}: AED ${ctx.parsed.y?.toFixed(2) || '--'}`,
+            label: (tooltipCtx) => {
+              const storeId = stores[tooltipCtx.datasetIndex]?.id;
+              const date = labels[tooltipCtx.dataIndex];
+              if (oosMap[date] && oosMap[date][storeId]) {
+                return `${tooltipCtx.dataset.label}: Out of Stock`;
+              }
+              return `${tooltipCtx.dataset.label}: AED ${tooltipCtx.parsed.y?.toFixed(2) || '--'}`;
+            },
           },
         },
       },
@@ -311,17 +339,23 @@ function renderItemChart(data, item) {
     },
   });
 
-  // Show min/max info
+  // Show min/max info (exclude -1 from stats)
   let infoText = '';
   for (const store of stores) {
     const prices = data
       .map((d) => d.prices[store.id])
-      .filter((p) => p !== null && p !== undefined);
+      .filter((p) => p !== null && p !== undefined && p !== -1);
     if (prices.length > 0) {
       const min = Math.min(...prices);
       const max = Math.max(...prices);
       const latest = prices[prices.length - 1];
       infoText += `${store.name}: AED ${latest.toFixed(2)} (range: ${min.toFixed(2)} – ${max.toFixed(2)}) | `;
+    } else {
+      // Check if all entries are OOS
+      const allEntries = data.map((d) => d.prices[store.id]).filter((p) => p != null);
+      if (allEntries.length > 0 && allEntries.every((p) => p === -1)) {
+        infoText += `${store.name}: Out of Stock | `;
+      }
     }
   }
   document.getElementById('modalInfo').textContent = infoText.slice(0, -3);

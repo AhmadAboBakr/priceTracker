@@ -94,7 +94,7 @@ export class PriceQueries {
     `, [itemId, days]);
   }
 
-  /** Gets the total basket cost per store per day */
+  /** Gets the total basket cost per store per day (excludes out-of-stock = -1) */
   getBasketHistory(days: number) {
     return queryAll(this.db, `
       SELECT DATE(scraped_at) as date, store_id,
@@ -102,6 +102,7 @@ export class PriceQueries {
              COUNT(DISTINCT item_id) as item_count
       FROM price_history
       WHERE scraped_at >= datetime('now', '-' || ? || ' days')
+        AND price > 0
       GROUP BY DATE(scraped_at), store_id
       ORDER BY date ASC
     `, [days]);
@@ -129,7 +130,7 @@ export class PriceQueries {
     `, [limit]);
   }
 
-  /** Gets aggregate stats per store (latest basket total) */
+  /** Gets aggregate stats per store (latest basket total, excludes out-of-stock) */
   getStats() {
     return queryAll(this.db, `
       SELECT
@@ -145,6 +146,7 @@ export class PriceQueries {
       ) latest ON ph.item_id = latest.item_id
                AND ph.store_id = latest.store_id
                AND ph.scraped_at = latest.max_date
+      WHERE ph.price > 0
       GROUP BY s.id
     `);
   }
