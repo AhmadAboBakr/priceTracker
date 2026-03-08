@@ -254,14 +254,35 @@
 
     // ── Init ────────────────────────────────────────
     async function init() {
-      const [storesRes, itemsRes] = await Promise.all([
-        fetch('/api/stores').then(r => r.json()),
-        fetch('/api/items').then(r => r.json()),
-      ]);
-      stores = storesRes;
-      items  = itemsRes;
+      try {
+        const [storesRes, itemsRes] = await Promise.all([
+          fetch('/api/stores').then(r => r.json()),
+          fetch('/api/items').then(r => r.json()),
+        ]);
+        stores = Array.isArray(storesRes) ? storesRes : [];
+        items  = Array.isArray(itemsRes)  ? itemsRes  : [];
+        console.log('[init] Loaded', stores.length, 'stores,', items.length, 'items');
+      } catch (err) {
+        console.error('[init] Failed to load data:', err);
+        showToast('Failed to load data from server', 'error');
+        return;
+      }
 
       // Set up table headers per store
+      setupStoreHeaders();
+
+      // Build latest-price map
+      rebuildPriceMap();
+      buildCategoryChips();
+      renderItems();
+    }
+
+    function setupStoreHeaders() {
+      // Clear all store headers first
+      for (let i = 1; i <= 3; i++) {
+        const th = document.getElementById(`storeHead${i}`);
+        if (th) th.innerHTML = '';
+      }
       stores.forEach((s, i) => {
         const th = document.getElementById(`storeHead${i + 1}`);
         if (th) {
@@ -269,18 +290,18 @@
           th.innerHTML = `<span class="store-dot ${cls}"></span> ${s.name.replace('Hypermarket','').replace('UAE','').trim()}`;
         }
       });
+    }
 
-      // Build latest-price map
+    function rebuildPriceMap() {
+      latestPricesMap = {};
       for (const item of items) {
+        if (!item.prices) continue;
         for (const storeId of Object.keys(item.prices)) {
           if (item.prices[storeId]) {
             latestPricesMap[`${item.id}-${storeId}`] = item.prices[storeId].price;
           }
         }
       }
-
-      buildCategoryChips();
-      renderItems();
     }
 
     function buildCategoryChips() {
@@ -301,8 +322,24 @@
       renderItems();
     });
 
+    // ── Refresh data from API ────────────────────────
+    async function refreshData() {
+      try {
+        const updatedItems = await fetch('/api/items').then(r => r.json());
+        items = Array.isArray(updatedItems) ? updatedItems : [];
+        rebuildPriceMap();
+      } catch (err) {
+        console.error('[refreshData] Failed:', err);
+      }
+    }
+
     // ── Render ───────────────────────────────────────
     function renderItems() {
+      if (stores.length === 0) {
+        itemsBody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:20px;color:#999">No stores loaded. Check server connection.</td></tr>';
+        return;
+      }
+
       const filtered = activeCategory === 'all'
         ? items
         : items.filter(i => i.category === activeCategory);
@@ -313,6 +350,12 @@
         if (inp.value) savedValues[inp.dataset.key] = inp.value;
       });
 
+      if (filtered.length === 0) {
+        itemsBody.innerHTML = '<tr><td colspan="' + (3 + stores.length) + '" style="text-align:center;padding:20px;color:#999">No items yet. Add one above!</td></tr>';
+        itemCount.textContent = '0';
+        return;
+      }
+
       let html = '';
       for (const item of filtered) {
         html += `<tr>`;
@@ -321,7 +364,7 @@
 
         for (const store of stores) {
           const lastPrice = latestPricesMap[`${item.id}-${store.id}`];
-          const lastStr   = lastPrice != null ? lastPrice.toFixed(2) : '';
+          const lastStr   = lastPrice != null ? Number(lastPrice).toFixed(2) : '';
           const key       = `${item.id}-${store.id}`;
           const saved     = savedValues[key] || '';
 
@@ -372,18 +415,8 @@
         if (res.ok && data.success) {
           showToast(`Added "${name}"`, 'success');
           newItemName.value = '';
-          // Refresh items
-          const updatedItems = await fetch('/api/items').then(r => r.json());
-          items = updatedItems;
-          // Refresh price map
-          latestPricesMap = {};
-          for (const item of items) {
-            for (const sid of Object.keys(item.prices)) {
-              if (item.prices[sid]) latestPricesMap[`${item.id}-${sid}`] = item.prices[sid].price;
-            }
-          }
+          await refreshData();
           buildCategoryChips();
-          // Activate the new item's category
           activeCategory = category;
           filterChips.querySelectorAll('.filter-chip').forEach(c => {
             c.classList.toggle('active', c.dataset.cat === category);
@@ -393,6 +426,7 @@
           showToast(data.error || 'Failed to add item', 'error');
         }
       } catch (err) {
+        console.error('[addItem] Error:', err);
         showToast('Network error', 'error');
       } finally {
         btnAddItem.disabled = false;
@@ -440,6 +474,7 @@
       if (!date) { showToast('Pick a date first', 'error'); return; }
 
       const inputs = itemsBody.querySelectorAll('.price-input');
+      console.log('[save] Found', inputs.length, 'price inputs');
       const prices = [];
       inputs.forEach(inp => {
         const val = parseFloat(inp.value);
@@ -453,6 +488,7 @@
         }
       });
 
+      console.log('[save] Sending', prices.length, 'prices:', JSON.stringify(prices));
       if (prices.length === 0) { showToast('No prices to save', 'error'); return; }
 
       btnSubmit.disabled = true;
@@ -471,21 +507,13 @@
           // Clear filled inputs
           inputs.forEach(inp => { if (parseFloat(inp.value) > 0) inp.value = ''; });
           updateFilledCount();
-
-          // Refresh latest prices
-          const updatedItems = await fetch('/api/items').then(r => r.json());
-          items = updatedItems;
-          latestPricesMap = {};
-          for (const item of items) {
-            for (const sid of Object.keys(item.prices)) {
-              if (item.prices[sid]) latestPricesMap[`${item.id}-${sid}`] = item.prices[sid].price;
-            }
-          }
+          await refreshData();
           renderItems();
         } else {
           showToast(data.error || 'Failed to save', 'error');
         }
       } catch (err) {
+        console.error('[save] Error:', err);
         showToast('Network error — could not save', 'error');
       } finally {
         btnSubmit.disabled = false;
