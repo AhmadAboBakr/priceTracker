@@ -94,10 +94,11 @@ export class PriceQueries {
     `, [itemId, days]);
   }
 
-  /** Gets the total basket cost per store per day (excludes out-of-stock = -1) */
+  /** Gets average price per item per store per day (excludes out-of-stock = -1) */
   getBasketHistory(days: number) {
     return queryAll(this.db, `
       SELECT DATE(scraped_at) as date, store_id,
+             ROUND(AVG(price), 2) as avg_price,
              ROUND(SUM(price), 2) as total,
              COUNT(DISTINCT item_id) as item_count
       FROM price_history

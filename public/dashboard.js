@@ -3,7 +3,15 @@ const STORE_COLORS = {};
 const STORE_NAMES = {};
 const STORE_CSS = {};
 
-// These get populated once we fetch stores
+const COLOR_PALETTE = [
+  '#FF6B35', '#004B87', '#00B050', '#8B5CF6', '#EC4899',
+  '#F59E0B', '#06B6D4', '#EF4444', '#6366F1', '#84CC16',
+];
+const CSS_CLASSES = [
+  'lulu', 'carrefour', 'coop', 'store4', 'store5',
+  'store6', 'store7', 'store8', 'store9', 'store10',
+];
+
 let stores = [];
 let items = [];
 let basketChart = null;
@@ -14,7 +22,7 @@ let currentCategory = 'all';
 // ── Init ────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
   await loadStores();
-  await Promise.all([loadItems(), loadBasketChart(), loadStats()]);
+  await Promise.all([loadItems(), loadBasketChart()]);
   setupEventListeners();
 });
 
@@ -24,64 +32,97 @@ async function loadStores() {
     const res = await fetch('/api/stores');
     stores = await res.json();
 
-    const colors = ['#FF6B35', '#004B87', '#00B050'];
-    const cssClasses = ['lulu', 'carrefour', 'coop'];
-
     stores.forEach((s, i) => {
-      STORE_COLORS[s.id] = colors[i] || '#888';
+      STORE_COLORS[s.id] = COLOR_PALETTE[i % COLOR_PALETTE.length];
       STORE_NAMES[s.id] = s.name;
-      STORE_CSS[s.id] = cssClasses[i] || 'lulu';
+      STORE_CSS[s.id] = CSS_CLASSES[i % CSS_CLASSES.length];
     });
   } catch (err) {
     console.error('Failed to load stores:', err);
   }
 }
 
-// ── Load stats summary cards ────────────────────────
-async function loadStats() {
-  try {
-    const res = await fetch('/api/stats');
-    const stats = await res.json();
-
-    if (stats.length === 0) {
-      document.getElementById('statLuluVal').textContent = 'No data';
-      document.getElementById('statCarrefourVal').textContent = 'No data';
-      document.getElementById('statCoopVal').textContent = 'No data';
-      document.getElementById('statCheapestVal').textContent = '--';
-      return;
-    }
-
-    let cheapest = null;
-    for (const stat of stats) {
-      const name = (stat.store_name || '').toLowerCase();
-      if (name.includes('lulu')) {
-        document.getElementById('statLuluVal').textContent =
-          stat.basket_total?.toFixed(2) || '--';
-      } else if (name.includes('carrefour')) {
-        document.getElementById('statCarrefourVal').textContent =
-          stat.basket_total?.toFixed(2) || '--';
-      } else if (name.includes('coop') || name.includes('union')) {
-        document.getElementById('statCoopVal').textContent =
-          stat.basket_total?.toFixed(2) || '--';
-      }
-
-      if (
-        stat.basket_total &&
-        (!cheapest || stat.basket_total < cheapest.basket_total)
-      ) {
-        cheapest = stat;
-      }
-    }
-
-    if (cheapest) {
-      document.getElementById('statCheapestVal').textContent =
-        cheapest.basket_total.toFixed(2);
-      document.getElementById('statCheapestSub').textContent =
-        `${cheapest.store_name} (${cheapest.items_tracked} items)`;
-    }
-  } catch (err) {
-    console.error('Failed to load stats:', err);
+// ── Compute and render inflation stats ──────────────
+function renderStats() {
+  const row = document.getElementById('statsRow');
+  if (!items || items.length === 0) {
+    row.innerHTML = '';
+    return;
   }
+
+  // Gather all % changes across all stores
+  let totalUp = 0, totalDown = 0, totalFlat = 0, totalOOS = 0;
+  const allChanges = [];
+
+  for (const item of items) {
+    for (const store of stores) {
+      const priceData = item.prices[store.id];
+      const change = item.changes[store.id];
+
+      if (priceData && priceData.price === -1) {
+        totalOOS++;
+        continue;
+      }
+      if (!priceData) continue;
+
+      if (change !== null && change !== undefined) {
+        allChanges.push(change);
+        if (change > 0) totalUp++;
+        else if (change < 0) totalDown++;
+        else totalFlat++;
+      }
+    }
+  }
+
+  const avgChange = allChanges.length > 0
+    ? (allChanges.reduce((a, b) => a + b, 0) / allChanges.length)
+    : 0;
+
+  const inflationDir = avgChange > 0.1 ? 'up' : avgChange < -0.1 ? 'down' : 'flat';
+  const inflationColor = inflationDir === 'up' ? 'var(--negative)' : inflationDir === 'down' ? 'var(--positive)' : 'var(--text-secondary)';
+  const inflationArrow = inflationDir === 'up' ? '&#9650;' : inflationDir === 'down' ? '&#9660;' : '&#8722;';
+
+  let html = '';
+
+  // Card 1: Average price change (inflation indicator)
+  html += `
+    <div class="stat-card">
+      <div class="stat-label">Avg Price Change</div>
+      <div class="stat-value" style="color:${inflationColor}">${inflationArrow} ${Math.abs(avgChange).toFixed(1)}%</div>
+      <div class="stat-sub">across ${allChanges.length} price points</div>
+    </div>`;
+
+  // Card 2: Items tracked
+  html += `
+    <div class="stat-card">
+      <div class="stat-label">Items Tracked</div>
+      <div class="stat-value">${items.length}</div>
+      <div class="stat-sub">across ${stores.length} store${stores.length !== 1 ? 's' : ''}</div>
+    </div>`;
+
+  // Card 3: Price movement breakdown
+  html += `
+    <div class="stat-card">
+      <div class="stat-label">Price Movements</div>
+      <div class="stat-value" style="font-size:1.1rem">
+        <span style="color:var(--negative)">&#9650; ${totalUp}</span> &nbsp;
+        <span style="color:var(--positive)">&#9660; ${totalDown}</span> &nbsp;
+        <span style="color:var(--text-secondary)">&#8722; ${totalFlat}</span>
+      </div>
+      <div class="stat-sub">up / down / unchanged</div>
+    </div>`;
+
+  // Card 4: Out of stock count (only if > 0)
+  if (totalOOS > 0) {
+    html += `
+      <div class="stat-card">
+        <div class="stat-label">Out of Stock</div>
+        <div class="stat-value" style="color:var(--negative)">${totalOOS}</div>
+        <div class="stat-sub">item–store combinations</div>
+      </div>`;
+  }
+
+  row.innerHTML = html;
 }
 
 // ── Load items grid ─────────────────────────────────
@@ -90,11 +131,12 @@ async function loadItems() {
     const res = await fetch('/api/items');
     items = await res.json();
     renderItems();
+    renderStats();
     populateCategoryFilter();
   } catch (err) {
     console.error('Failed to load items:', err);
     document.getElementById('itemsGrid').innerHTML =
-      '<p class="loading">Failed to load items. Is the database seeded?</p>';
+      '<p class="loading">Failed to load items.</p>';
   }
 }
 
@@ -108,7 +150,7 @@ function renderItems() {
   document.getElementById('itemCount').textContent = `${filtered.length} items`;
 
   if (filtered.length === 0) {
-    grid.innerHTML = '<p class="loading">No items found. Run the scraper first: <code>npm run scrape</code></p>';
+    grid.innerHTML = '<p class="loading">No items found. <a href="/manage-items.html">Add items</a> and <a href="/add-prices.html">enter prices</a> to get started.</p>';
     return;
   }
 
@@ -164,13 +206,12 @@ function renderItems() {
 function populateCategoryFilter() {
   const categories = [...new Set(items.map((i) => i.category))].sort();
   const select = document.getElementById('categoryFilter');
-  // Keep "all" option, add categories
   select.innerHTML =
     '<option value="all">All Categories</option>' +
     categories.map((c) => `<option value="${c}">${c}</option>`).join('');
 }
 
-// ── Basket trend chart ──────────────────────────────
+// ── Average price trend chart ───────────────────────
 async function loadBasketChart() {
   try {
     const res = await fetch(`/api/basket?days=${currentDays}`);
@@ -195,7 +236,7 @@ function renderBasketChart(data) {
         plugins: {
           title: {
             display: true,
-            text: 'Run the scraper to see data: npm run scrape',
+            text: 'Add prices to see trends',
           },
         },
       },
@@ -206,7 +247,7 @@ function renderBasketChart(data) {
   const labels = data.map((d) => d.date);
   const datasets = stores.map((store) => ({
     label: store.name,
-    data: data.map((d) => d.totals[store.id] || null),
+    data: data.map((d) => d.avgs[store.id] || null),
     borderColor: STORE_COLORS[store.id],
     backgroundColor: STORE_COLORS[store.id] + '20',
     borderWidth: 2,
@@ -228,15 +269,20 @@ function renderBasketChart(data) {
         legend: { position: 'bottom', labels: { usePointStyle: true } },
         tooltip: {
           callbacks: {
-            label: (ctx) =>
-              `${ctx.dataset.label}: AED ${ctx.parsed.y?.toFixed(2) || '--'}`,
+            label: (tooltipCtx) => {
+              const storeId = stores[tooltipCtx.datasetIndex]?.id;
+              const date = labels[tooltipCtx.dataIndex];
+              const entry = data.find((d) => d.date === date);
+              const count = entry?.itemCount?.[storeId] || '?';
+              return `${tooltipCtx.dataset.label}: AED ${tooltipCtx.parsed.y?.toFixed(2) || '--'} avg (${count} items)`;
+            },
           },
         },
       },
       scales: {
         y: {
           beginAtZero: false,
-          title: { display: true, text: 'Total Basket (AED)' },
+          title: { display: true, text: 'Avg Price per Item (AED)' },
         },
         x: {
           title: { display: true, text: 'Date' },
@@ -284,7 +330,7 @@ function renderItemChart(data, item) {
     label: store.name,
     data: data.map((d) => {
       const p = d.prices[store.id];
-      return (p != null && p !== -1) ? p : null; // Exclude out-of-stock from chart line
+      return (p != null && p !== -1) ? p : null;
     }),
     borderColor: STORE_COLORS[store.id],
     backgroundColor: STORE_COLORS[store.id] + '20',
@@ -351,7 +397,6 @@ function renderItemChart(data, item) {
       const latest = prices[prices.length - 1];
       infoText += `${store.name}: AED ${latest.toFixed(2)} (range: ${min.toFixed(2)} – ${max.toFixed(2)}) | `;
     } else {
-      // Check if all entries are OOS
       const allEntries = data.map((d) => d.prices[store.id]).filter((p) => p != null);
       if (allEntries.length > 0 && allEntries.every((p) => p === -1)) {
         infoText += `${store.name}: Out of Stock | `;

@@ -123,21 +123,23 @@ export function createRouter(db: Database): Router {
       // Group by date
       const dateMap = new Map<
         string,
-        { totals: Record<number, number>; counts: Record<number, number> }
+        { totals: Record<number, number>; counts: Record<number, number>; avgs: Record<number, number> }
       >();
       for (const row of history) {
         if (!dateMap.has(row.date)) {
-          dateMap.set(row.date, { totals: {}, counts: {} });
+          dateMap.set(row.date, { totals: {}, counts: {}, avgs: {} });
         }
         const entry = dateMap.get(row.date)!;
         entry.totals[row.store_id] = row.total;
         entry.counts[row.store_id] = row.item_count;
+        entry.avgs[row.store_id] = row.avg_price;
       }
 
       const result = Array.from(dateMap.entries()).map(
-        ([date, { totals, counts }]) => ({
+        ([date, { totals, counts, avgs }]) => ({
           date,
           totals,
+          avgs,
           itemCount: counts,
         })
       );
@@ -156,6 +158,71 @@ export function createRouter(db: Database): Router {
       res.json(stats);
     } catch (err) {
       res.status(500).json({ error: 'Failed to fetch stats' });
+    }
+  });
+
+  // POST /api/stores — add a new store
+  router.post('/stores', (req: Request, res: Response) => {
+    try {
+      const { name, url, searchUrl } = req.body;
+
+      if (!name) {
+        res.status(400).json({ error: 'Store name is required' });
+        return;
+      }
+
+      db.run(
+        `INSERT INTO stores (name, url, search_url) VALUES (?, ?, ?)`,
+        [name.trim(), url?.trim() || '', searchUrl?.trim() || '']
+      );
+
+      const row = db.exec(`SELECT last_insert_rowid() as id`);
+      const newId = row[0]?.values[0]?.[0] as number;
+
+      // Create item_store_mapping entries for all existing items
+      const allItems = queries.getAllItems();
+      for (const item of allItems) {
+        db.run(
+          `INSERT OR IGNORE INTO item_store_mapping (item_id, store_id, search_query) VALUES (?, ?, ?)`,
+          [item.id, newId, item.name]
+        );
+      }
+
+      const { saveDatabase: save } = require('../db/schema');
+      save(db);
+
+      res.json({ success: true, id: newId, name: name.trim() });
+    } catch (err: any) {
+      if (err.message?.includes('UNIQUE constraint')) {
+        res.status(409).json({ error: 'A store with that name already exists' });
+      } else {
+        console.error(err);
+        res.status(500).json({ error: 'Failed to create store' });
+      }
+    }
+  });
+
+  // DELETE /api/stores/:id — remove a store and its data
+  router.delete('/stores/:id', (req: Request, res: Response) => {
+    try {
+      const storeId = parseInt(req.params.id, 10);
+      if (isNaN(storeId)) {
+        res.status(400).json({ error: 'Invalid store ID' });
+        return;
+      }
+
+      db.run(`DELETE FROM price_history WHERE store_id = ?`, [storeId]);
+      db.run(`DELETE FROM item_store_mapping WHERE store_id = ?`, [storeId]);
+      db.run(`DELETE FROM scrape_logs WHERE store_id = ?`, [storeId]);
+      db.run(`DELETE FROM stores WHERE id = ?`, [storeId]);
+
+      const { saveDatabase: save } = require('../db/schema');
+      save(db);
+
+      res.json({ success: true });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Failed to delete store' });
     }
   });
 
@@ -235,11 +302,11 @@ export function createRouter(db: Database): Router {
 
       const now = new Date().toISOString();
       const records = prices
-        .filter((p: any) => p.itemId && p.storeId && typeof p.price === 'number' && (p.price > 0 || p.price === -1))
+        .filter((p: any) => p.itemId && p.storeId && typeof p.price === 'number' && (p.price > 0 || p.price < 0))
         .map((p: any) => ({
           itemId: p.itemId,
           storeId: p.storeId,
-          price: p.price,
+          price: p.price < 0 ? -1 : p.price, // Normalize any negative to -1 (out of stock)
           scrapedAt: p.date || now,
         }));
 

@@ -184,9 +184,16 @@ header h1 { font-size: 1.5rem; font-weight: 700; }
   margin-right: 6px;
 }
 
-.store-dot.lulu { background: var(--lulu-color); }
-.store-dot.carrefour { background: var(--carrefour-color); }
-.store-dot.coop { background: var(--coop-color); }
+.store-dot.lulu { background: #FF6B35; }
+.store-dot.carrefour { background: #004B87; }
+.store-dot.coop { background: #00B050; }
+.store-dot.store4 { background: #8B5CF6; }
+.store-dot.store5 { background: #EC4899; }
+.store-dot.store6 { background: #F59E0B; }
+.store-dot.store7 { background: #06B6D4; }
+.store-dot.store8 { background: #EF4444; }
+.store-dot.store9 { background: #6366F1; }
+.store-dot.store10 { background: #84CC16; }
 
 .price-value { font-weight: 600; }
 .price-change { font-size: 0.75rem; font-weight: 600; }

@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Manage Stores — UAE Grocery Price Tracker</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    .page-wrapper { max-width: 800px; margin: 0 auto; padding: 24px 32px; }
+    .back-link {
+      display: inline-flex; align-items: center; gap: 6px;
+      color: rgba(255,255,255,0.8); text-decoration: none; font-size: 0.875rem; margin-bottom: 8px;
+    }
+    .back-link:hover { color: white; }
+
+    .card {
+      background: var(--card-bg); border-radius: var(--radius);
+      padding: 24px; box-shadow: var(--shadow); margin-bottom: 20px;
+    }
+    .card h2 { font-size: 1.1rem; margin-bottom: 16px; display: flex; align-items: center; gap: 10px; }
+
+    /* ── Add Store Form ────────────────────────────── */
+    .add-form { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+    .field { display: flex; flex-direction: column; gap: 4px; }
+    .field label {
+      font-size: 0.75rem; font-weight: 600; color: var(--text-secondary);
+      text-transform: uppercase; letter-spacing: 0.03em;
+    }
+    .field input {
+      padding: 10px 14px; border: 1px solid var(--border); border-radius: 8px;
+      font-size: 0.9rem; color: var(--text); background: white;
+    }
+    .field input:focus {
+      outline: none; border-color: var(--carrefour-color);
+      box-shadow: 0 0 0 3px rgba(0,75,135,0.1);
+    }
+    .field .hint {
+      font-size: 0.7rem; color: var(--text-secondary); margin-top: 2px;
+    }
+    .btn-add {
+      padding: 10px 24px; border: none; border-radius: 8px; height: 42px;
+      background: var(--carrefour-color); color: white; font-weight: 600;
+      font-size: 0.9rem; cursor: pointer; white-space: nowrap;
+    }
+    .btn-add:hover { background: #003a6b; }
+    .btn-add:disabled { background: #aaa; cursor: not-allowed; }
+
+    /* ── Store List ────────────────────────────────── */
+    .store-row {
+      display: flex; align-items: center; gap: 12px;
+      padding: 14px 0; border-bottom: 1px solid var(--border);
+    }
+    .store-row:last-child { border-bottom: none; }
+    .store-info { flex: 1; }
+    .store-name { font-weight: 600; font-size: 1rem; }
+    .store-url { font-size: 0.75rem; color: var(--text-secondary); margin-top: 2px; word-break: break-all; }
+    .store-meta {
+      font-size: 0.7rem; padding: 2px 10px; border-radius: 10px;
+      background: var(--bg); color: var(--text-secondary); font-weight: 500;
+    }
+    .btn-delete {
+      background: none; border: 1px solid transparent; cursor: pointer; color: #bbb;
+      font-size: 0.85rem; padding: 4px 10px; border-radius: 6px;
+    }
+    .btn-delete:hover { color: var(--negative); border-color: rgba(220,38,38,0.2); background: rgba(220,38,38,0.05); }
+
+    .empty-msg { text-align: center; padding: 32px; color: var(--text-secondary); }
+
+    .warning-text {
+      font-size: 0.78rem; color: var(--negative); margin-top: 4px; display: none;
+    }
+
+    /* ── Toast ──────────────────────────────────────── */
+    .toast {
+      position: fixed; bottom: 24px; right: 24px; padding: 14px 24px; border-radius: 8px;
+      color: white; font-weight: 500; font-size: 0.9rem;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+      transform: translateY(100px); opacity: 0; transition: all 0.3s ease; z-index: 2000;
+    }
+    .toast.show { transform: translateY(0); opacity: 1; }
+    .toast.success { background: #16a34a; }
+    .toast.error { background: #dc2626; }
+
+    @media (max-width: 768px) {
+      .page-wrapper { padding: 16px; }
+      .add-form { flex-direction: column; }
+      .field { width: 100%; }
+      .btn-add { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="header-content">
+      <a href="/" class="back-link">&larr; Dashboard</a>
+      <h1>Manage Stores</h1>
+      <p class="subtitle">Add or remove stores to track prices from</p>
+    </div>
+  </header>
+
+  <main class="page-wrapper">
+    <!-- Add new store -->
+    <div class="card">
+      <h2>Add New Store</h2>
+      <div class="add-form">
+        <div class="field" style="flex:2;min-width:180px">
+          <label for="storeName">Store Name</label>
+          <input type="text" id="storeName" placeholder="e.g. Choithrams">
+        </div>
+        <div class="field" style="flex:2;min-width:200px">
+          <label for="storeUrl">Website URL <span style="font-weight:400;text-transform:none">(optional)</span></label>
+          <input type="text" id="storeUrl" placeholder="e.g. https://www.choithrams.com">
+        </div>
+        <button class="btn-add" id="btnAdd">+ Add Store</button>
+      </div>
+    </div>
+
+    <!-- Current stores -->
+    <div class="card">
+      <h2>Your Stores <span class="badge" id="countBadge">0</span></h2>
+      <div id="storesList"></div>
+    </div>
+  </main>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    let stores = [];
+
+    const storeName  = document.getElementById('storeName');
+    const storeUrl   = document.getElementById('storeUrl');
+    const btnAdd     = document.getElementById('btnAdd');
+    const storesList = document.getElementById('storesList');
+    const countBadge = document.getElementById('countBadge');
+    const toast      = document.getElementById('toast');
+
+    async function loadStores() {
+      try {
+        const res = await fetch('/api/stores');
+        const data = await res.json();
+        stores = Array.isArray(data) ? data : [];
+      } catch (e) {
+        console.error('Failed to load stores', e);
+        stores = [];
+      }
+      render();
+    }
+
+    function render() {
+      countBadge.textContent = stores.length;
+
+      if (stores.length === 0) {
+        storesList.innerHTML = '<div class="empty-msg">No stores yet. Add your first store above!</div>';
+        return;
+      }
+
+      let html = '';
+      for (const store of stores) {
+        html += `
+          <div class="store-row">
+            <div class="store-info">
+              <div class="store-name">${store.name}</div>
+              ${store.url ? `<div class="store-url">${store.url}</div>` : ''}
+            </div>
+            <button class="btn-delete" data-id="${store.id}" data-name="${store.name}">Remove</button>
+          </div>`;
+      }
+      storesList.innerHTML = html;
+    }
+
+    // Add store
+    btnAdd.addEventListener('click', async () => {
+      const name = storeName.value.trim();
+      const url = storeUrl.value.trim();
+      if (!name) { showToast('Enter a store name', 'error'); return; }
+
+      btnAdd.disabled = true;
+      try {
+        const res = await fetch('/api/stores', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, url, searchUrl: url }),
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          showToast(`Added "${name}"`, 'success');
+          storeName.value = '';
+          storeUrl.value = '';
+          await loadStores();
+        } else {
+          showToast(data.error || 'Failed to add', 'error');
+        }
+      } catch (e) {
+        showToast('Network error', 'error');
+      } finally {
+        btnAdd.disabled = false;
+      }
+    });
+
+    storeName.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { e.preventDefault(); btnAdd.click(); }
+    });
+
+    // Remove store
+    storesList.addEventListener('click', async e => {
+      const btn = e.target.closest('.btn-delete');
+      if (!btn) return;
+      const id = parseInt(btn.dataset.id);
+      const name = btn.dataset.name;
+      if (!confirm(`Remove "${name}"?\n\nThis will permanently delete all price history for this store.`)) return;
+
+      try {
+        const res = await fetch(`/api/stores/${id}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          showToast(`Removed "${name}"`, 'success');
+          stores = stores.filter(s => s.id !== id);
+          render();
+        } else {
+          showToast(data.error || 'Failed to remove', 'error');
+        }
+      } catch (e) {
+        showToast('Network error', 'error');
+      }
+    });
+
+    function showToast(msg, type) {
+      toast.textContent = msg;
+      toast.className = `toast ${type} show`;
+      setTimeout(() => toast.classList.remove('show'), 3500);
+    }
+
+    loadStores();
+  </script>
+</body>
+</html>

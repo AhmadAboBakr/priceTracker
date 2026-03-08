@@ -294,7 +294,7 @@
 
           html += `<td class="store-cell">
             <input type="number" class="price-in" data-k="${k}" data-i="${item.id}" data-s="${store.id}"
-                   placeholder="${lastStr || '0.00'}" step="0.01" min="-1" value="${val}">
+                   placeholder="${lastStr || '0.00'}" step="0.01" value="${val}">
             ${isOOS ? '<span class="oos-label">Out of Stock</span>' : lastStr ? `<span class="last-val">was ${lastStr}</span>` : ''}
           </td>`;
         }
@@ -313,9 +313,9 @@
       let n = 0;
       tbody.querySelectorAll('.price-in').forEach(inp => {
         const v = parseFloat(inp.value);
-        if (inp.value && (v > 0 || v === -1)) n++;
-        // Visual feedback for -1
-        inp.classList.toggle('out-of-stock', v === -1);
+        if (inp.value && !isNaN(v) && v !== 0) n++;
+        // Visual feedback for negative = out of stock
+        inp.classList.toggle('out-of-stock', inp.value && v < 0);
       });
       filledN.textContent = n;
       btnSave.disabled = n === 0;
@@ -334,15 +334,15 @@
 
       const prices = [];
       tbody.querySelectorAll('.price-in').forEach(inp => {
+        if (!inp.value) return; // Empty = not entered, skip
         const v = parseFloat(inp.value);
-        if (v > 0 || v === -1) {
-          prices.push({
-            itemId:  parseInt(inp.dataset.i),
-            storeId: parseInt(inp.dataset.s),
-            price:   v,
-            date:    date + 'T12:00:00.000Z',
-          });
-        }
+        if (isNaN(v) || v === 0) return; // Zero or invalid = not entered, skip
+        prices.push({
+          itemId:  parseInt(inp.dataset.i),
+          storeId: parseInt(inp.dataset.s),
+          price:   v < 0 ? -1 : v, // Any negative = out of stock (-1)
+          date:    date + 'T12:00:00.000Z',
+        });
       });
 
       if (!prices.length) { showToast('No prices to save', 'error'); return; }
@@ -361,10 +361,9 @@
         if (res.ok && data.success) {
           showToast(`Saved ${data.inserted} price(s)!`, 'success');
 
-          // Clear saved inputs
+          // Clear saved inputs (anything that was filled)
           tbody.querySelectorAll('.price-in').forEach(inp => {
-            const v = parseFloat(inp.value);
-            if (v > 0 || v === -1) inp.value = '';
+            if (inp.value) inp.value = '';
           });
           countFilled();
 

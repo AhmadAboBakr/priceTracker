@@ -11,11 +11,12 @@
   <header>
     <div class="header-content">
       <h1>UAE Grocery Price Tracker</h1>
-      <p class="subtitle">Daily price monitoring across Lulu, Carrefour & Union Coop</p>
+      <p class="subtitle">Track grocery price inflation across UAE supermarkets</p>
     </div>
     <div class="controls">
       <a href="/add-prices.html" class="add-prices-link">+ Add Prices</a>
       <a href="/manage-items.html" class="add-prices-link" style="background:rgba(255,255,255,0.15)">Manage Items</a>
+      <a href="/manage-stores.html" class="add-prices-link" style="background:rgba(255,255,255,0.15)">Manage Stores</a>
       <select id="daysFilter">
         <option value="7">Last 7 days</option>
         <option value="30" selected>Last 30 days</option>
@@ -29,33 +30,12 @@
   </header>
 
   <main>
-    <!-- Summary Stats -->
-    <section class="stats-row" id="statsRow">
-      <div class="stat-card" id="statLulu">
-        <div class="stat-label">Lulu Basket</div>
-        <div class="stat-value" id="statLuluVal">--</div>
-        <div class="stat-sub">AED</div>
-      </div>
-      <div class="stat-card" id="statCarrefour">
-        <div class="stat-label">Carrefour Basket</div>
-        <div class="stat-value" id="statCarrefourVal">--</div>
-        <div class="stat-sub">AED</div>
-      </div>
-      <div class="stat-card" id="statCoop">
-        <div class="stat-label">Union Coop Basket</div>
-        <div class="stat-value" id="statCoopVal">--</div>
-        <div class="stat-sub">AED</div>
-      </div>
-      <div class="stat-card stat-highlight" id="statCheapest">
-        <div class="stat-label">Cheapest Overall</div>
-        <div class="stat-value" id="statCheapestVal">--</div>
-        <div class="stat-sub" id="statCheapestSub"></div>
-      </div>
-    </section>
+    <!-- Summary Stats (dynamically generated) -->
+    <section class="stats-row" id="statsRow"></section>
 
-    <!-- Basket Trend Chart -->
+    <!-- Average Price Trend Chart -->
     <section class="chart-section">
-      <h2>Shopping Basket Trend</h2>
+      <h2>Average Price Trend (per item)</h2>
       <div class="chart-container">
         <canvas id="basketChart"></canvas>
       </div>
