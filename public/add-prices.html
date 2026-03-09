@@ -103,6 +103,11 @@
       border: 1px solid var(--border); padding: 8px 16px; font-size: 0.85rem;
     }
     .btn-clear:hover { background: var(--bg); }
+    .btn-copy {
+      background: white; color: var(--carrefour-color);
+      border: 1px solid var(--carrefour-color); padding: 8px 16px; font-size: 0.85rem;
+    }
+    .btn-copy:hover { background: rgba(0,75,135,0.05); }
 
     .empty-msg { text-align: center; padding: 32px; color: var(--text-secondary); }
     .empty-msg a { color: var(--carrefour-color); }
@@ -170,6 +175,7 @@
         <div>
           <span class="count-text"><strong id="filledN">0</strong> prices filled</span>
           &nbsp;
+          <button class="btn btn-copy" id="btnCopy">Copy Last Prices</button>
           <button class="btn btn-clear" id="btnClear">Clear All</button>
         </div>
         <button class="btn btn-save" id="btnSave" disabled>Save Prices</button>
@@ -325,6 +331,27 @@
     btnClear.addEventListener('click', () => {
       tbody.querySelectorAll('.price-in').forEach(inp => inp.value = '');
       countFilled();
+    });
+
+    // ── Copy Last Prices ─────────────────────────────
+    const btnCopy = document.getElementById('btnCopy');
+    btnCopy.addEventListener('click', () => {
+      let filled = 0;
+      tbody.querySelectorAll('.price-in').forEach(inp => {
+        const k = inp.dataset.k;
+        const last = priceMap[k];
+        if (last != null && !inp.value) {
+          const v = Number(last);
+          inp.value = v === -1 ? '-1' : v.toFixed(2);
+          filled++;
+        }
+      });
+      countFilled();
+      if (filled > 0) {
+        showToast(`Copied ${filled} price(s) from last entry`, 'success');
+      } else {
+        showToast('No previous prices to copy', 'error');
+      }
     });
 
     // ── Save ──────────────────────────────────────────

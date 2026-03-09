@@ -298,9 +298,26 @@ function renderBasketChart(data) {
   }
 
   const labels = data.map((d) => d.date);
+
+  // Build raw avg arrays per store, treating 0 as null
+  const rawAvgs = {};
+  const basePrice = {}; // first valid avg per store (for normalization)
+  for (const store of stores) {
+    rawAvgs[store.id] = data.map((d) => {
+      const v = d.avgs[store.id];
+      return (v && v > 0) ? v : null; // ignore zero and missing
+    });
+    // Find first non-null value as the baseline
+    basePrice[store.id] = rawAvgs[store.id].find((v) => v !== null) || null;
+  }
+
+  // Normalize: first entry = 100, subsequent = (avg / base) * 100
   const datasets = stores.map((store) => ({
     label: store.name,
-    data: data.map((d) => d.avgs[store.id] || null),
+    data: rawAvgs[store.id].map((v) => {
+      if (v === null || basePrice[store.id] === null) return null;
+      return parseFloat(((v / basePrice[store.id]) * 100).toFixed(2));
+    }),
     borderColor: STORE_COLORS[store.id],
     backgroundColor: STORE_COLORS[store.id] + '20',
     borderWidth: 2,
@@ -327,7 +344,12 @@ function renderBasketChart(data) {
               const date = labels[tooltipCtx.dataIndex];
               const entry = data.find((d) => d.date === date);
               const count = entry?.itemCount?.[storeId] || '?';
-              return `${tooltipCtx.dataset.label}: AED ${tooltipCtx.parsed.y?.toFixed(2) || '--'} avg (${count} items)`;
+              const actualAvg = rawAvgs[storeId]?.[tooltipCtx.dataIndex];
+              const idx = tooltipCtx.parsed.y;
+              if (actualAvg != null && idx != null) {
+                return `${tooltipCtx.dataset.label}: ${idx.toFixed(1)} (AED ${actualAvg.toFixed(2)} avg, ${count} items)`;
+              }
+              return `${tooltipCtx.dataset.label}: --`;
             },
           },
         },
@@ -335,7 +357,10 @@ function renderBasketChart(data) {
       scales: {
         y: {
           beginAtZero: false,
-          title: { display: true, text: 'Avg Price per Item (AED)' },
+          title: { display: true, text: 'Price Index (first entry = 100)' },
+          ticks: {
+            callback: (val) => val.toFixed(0),
+          },
         },
         x: {
           title: { display: true, text: 'Date' },

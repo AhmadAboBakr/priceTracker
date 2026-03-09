@@ -68,6 +68,14 @@
     }
     .btn-delete:hover { color: var(--negative); border-color: rgba(220,38,38,0.2); background: rgba(220,38,38,0.05); }
 
+    .btn-cleanup {
+      padding: 8px 16px; border: 1px solid var(--negative); border-radius: 8px;
+      background: white; color: var(--negative); font-size: 0.8rem; font-weight: 600;
+      cursor: pointer; white-space: nowrap; transition: all 0.15s;
+    }
+    .btn-cleanup:hover { background: var(--negative); color: white; }
+    .btn-cleanup:disabled { opacity: 0.5; cursor: not-allowed; background: white; color: var(--negative); }
+
     .empty-msg { text-align: center; padding: 32px; color: var(--text-secondary); }
 
     /* ── Toast ──────────────────────────────────────── */
@@ -136,7 +144,10 @@
 
     <!-- Current items -->
     <div class="card">
-      <h2>Your Items <span class="badge" id="countBadge">0</span></h2>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px">
+        <h2 style="margin-bottom:0">Your Items <span class="badge" id="countBadge">0</span></h2>
+        <button class="btn-cleanup" id="btnCleanup" title="Remove items that have no price data at all">Remove Unpriced Items</button>
+      </div>
       <div class="filter-chips" id="chips"></div>
       <div id="itemsList"></div>
     </div>
@@ -267,6 +278,41 @@
       } catch (e) {
         showToast('Network error', 'error');
       }
+    });
+
+    // Remove items with no pricing data
+    const btnCleanup = document.getElementById('btnCleanup');
+    btnCleanup.addEventListener('click', async () => {
+      const unpriced = items.filter(item => {
+        const prices = item.prices || {};
+        return Object.values(prices).every(p => p === null || p === undefined);
+      });
+
+      if (unpriced.length === 0) {
+        showToast('All items have pricing data', 'success');
+        return;
+      }
+
+      const names = unpriced.map(i => i.name).join('\n• ');
+      if (!confirm(`Remove ${unpriced.length} item(s) with no pricing data?\n\n• ${names}`)) return;
+
+      btnCleanup.disabled = true;
+      let removed = 0;
+      for (const item of unpriced) {
+        try {
+          const res = await fetch(`/api/items/${item.id}`, { method: 'DELETE' });
+          const data = await res.json();
+          if (res.ok && data.success) removed++;
+        } catch (e) { /* skip failures */ }
+      }
+
+      if (removed > 0) {
+        showToast(`Removed ${removed} unpriced item(s)`, 'success');
+        await loadItems();
+      } else {
+        showToast('Failed to remove items', 'error');
+      }
+      btnCleanup.disabled = false;
     });
 
     function showToast(msg, type) {
