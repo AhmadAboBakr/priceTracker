@@ -1,225 +1,283 @@
 /**
- * Deep diagnostic for Lulu Hypermarket UAE.
+ * Playwright stealth diagnostic for Lulu Hypermarket UAE.
  * Run locally:  npx ts-node src/scrapers/probe-lulu.ts
  *
- * Tests every known approach to access Lulu product data:
- *   - Subdomains (api., m., mobile., search.)
- *   - Akinon commerce platform API patterns
- *   - Mobile app user-agent
- *   - Cookie jar warmup
- *   - Alternative GCC domains
- *   - Sitemap/robots
+ * Tests whether the Playwright + stealth approach bypasses Cloudflare
+ * and can extract product data from Lulu search pages.
  */
-import axios, { AxiosInstance } from 'axios';
-import { wrapper } from 'axios-cookiejar-support';
-import { CookieJar } from 'tough-cookie';
+const { chromium } = require('playwright-extra');
+const stealth = require('puppeteer-extra-plugin-stealth');
+chromium.use(stealth());
 
-const UA_BROWSER =
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
-const UA_MOBILE_ANDROID =
-  'LuluShopping/4.2.0 (Android 14; SM-S928B; Build/UP1A.231005.007)';
-const UA_MOBILE_IOS =
-  'LuluShopping/4.2.0 (iPhone; iOS 17.4; Scale/3.00)';
-
-function createClient(ua: string, useCookies = false): AxiosInstance {
-  const opts: any = {
-    timeout: 15000,
-    maxRedirects: 10,
-    headers: {
-      'User-Agent': ua,
-      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,application/json,*/*;q=0.8',
-      'Accept-Language': 'en-US,en;q=0.9,ar;q=0.8',
-      'Accept-Encoding': 'gzip, deflate, br',
-    },
-    validateStatus: () => true,  // don't throw on any status
-  };
-  if (useCookies) {
-    opts.jar = new CookieJar();
-    opts.withCredentials = true;
-    return wrapper(axios.create(opts));
-  }
-  return axios.create(opts);
-}
-
-async function probe(
-  label: string,
-  url: string,
-  client: AxiosInstance,
-  extraHeaders: Record<string, string> = {}
-) {
-  try {
-    const r = await client.get(url, { headers: extraHeaders });
-    const body = typeof r.data === 'string' ? r.data : JSON.stringify(r.data);
-    const cf = r.headers['server']?.includes('cloudflare') ? ' [CF]' : '';
-    const ct = r.headers['content-type'] || '';
-    const isJson = ct.includes('json') || body.startsWith('{') || body.startsWith('[');
-
-    let statusIcon = '❌';
-    if (r.status === 200) statusIcon = '✅';
-    else if (r.status === 301 || r.status === 302) statusIcon = '↪️';
-    else if (r.status === 403) statusIcon = '🔒';
-
-    console.log(`${statusIcon} ${label}: ${r.status}${cf} (${body.length} bytes, ${ct.split(';')[0]})`);
-
-    if (r.status === 200 && isJson && body.length > 10 && body.length < 2000) {
-      console.log(`   JSON preview: ${body.substring(0, 300)}`);
-    }
-    if (r.status === 200 && body.length > 1000) {
-      // Check for interesting patterns
-      const hasAed = (body.match(/AED\s*[\d,.]+/g) || []).length;
-      const hasPrice = body.includes('"price"') || body.includes('"sale_price"');
-      const hasProduct = body.includes('"product"') || body.includes('"name"');
-      const hasNext = body.includes('__NEXT_DATA__') || body.includes('_next/');
-      const hasAkinon = body.includes('akinon') || body.includes('Akinon');
-
-      if (hasAed || hasPrice || hasProduct || hasNext || hasAkinon) {
-        console.log(`   Signals: AED×${hasAed} | price:${hasPrice} | product:${hasProduct} | next:${hasNext} | akinon:${hasAkinon}`);
-      }
-    }
-    if (r.status === 200 && isJson && body.length > 10) {
-      console.log(`   🟢 JSON RESPONSE — THIS MIGHT WORK!`);
-    }
-    if (r.status === 301 || r.status === 302) {
-      console.log(`   → Redirects to: ${r.headers['location']}`);
-    }
-
-    return { status: r.status, bodyLength: body.length, body };
-  } catch (e: any) {
-    console.log(`❌ ${label}: ${e.code || e.message}`);
-    return { status: 0, bodyLength: 0, body: '' };
-  }
-}
+const SEARCH_TERMS = ['milk', 'rice', 'chicken', 'bread'];
+const BASE_URL = 'https://gcc.luluhypermarket.com/en-ae';
+const SEARCH_URL = 'https://gcc.luluhypermarket.com/en-ae/list/?search_text=';
 
 async function main() {
-  console.log('╔═══════════════════════════════════════════════╗');
-  console.log('║   Lulu Hypermarket — Deep API Diagnostic      ║');
-  console.log('╚═══════════════════════════════════════════════╝');
+  console.log('╔═══════════════════════════════════════════════════╗');
+  console.log('║  Lulu Hypermarket — Playwright Stealth Diagnostic  ║');
+  console.log('╚═══════════════════════════════════════════════════╝');
   console.log(`Running at ${new Date().toISOString()}\n`);
 
-  const browser = createClient(UA_BROWSER);
-  const browserCookie = createClient(UA_BROWSER, true);
-  const android = createClient(UA_MOBILE_ANDROID);
-  const ios = createClient(UA_MOBILE_IOS);
+  console.log('Launching stealth browser...');
+  const browser = await chromium.launch({
+    headless: true,
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-blink-features=AutomationControlled',
+      '--disable-dev-shm-usage',
+    ],
+  });
 
-  // ── Section 1: Basic reachability ──────────────────────────
-  console.log('═══ 1. BASIC REACHABILITY ═══');
-  await probe('Homepage (browser)', 'https://gcc.luluhypermarket.com/en-ae', browser);
-  await probe('Homepage (browser+cookies)', 'https://gcc.luluhypermarket.com/en-ae', browserCookie);
-  await probe('Homepage (Android UA)', 'https://gcc.luluhypermarket.com/en-ae', android);
-  await probe('Homepage (iOS UA)', 'https://gcc.luluhypermarket.com/en-ae', ios);
-  await probe('www.luluhypermarket.com', 'https://www.luluhypermarket.com', browser);
-  await probe('luluhypermarket.com (bare)', 'https://luluhypermarket.com', browser);
+  const context = await browser.newContext({
+    userAgent:
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+    viewport: { width: 1366, height: 768 },
+    locale: 'en-AE',
+    timezoneId: 'Asia/Dubai',
+  });
 
-  // ── Section 2: Subdomains ──────────────────────────────────
-  console.log('\n═══ 2. SUBDOMAINS ═══');
-  await probe('api.luluhypermarket.com', 'https://api.luluhypermarket.com', browser);
-  await probe('m.luluhypermarket.com', 'https://m.luluhypermarket.com', browser);
-  await probe('mobile.luluhypermarket.com', 'https://mobile.luluhypermarket.com', browser);
-  await probe('search.luluhypermarket.com', 'https://search.luluhypermarket.com', browser);
-  await probe('app.luluhypermarket.com', 'https://app.luluhypermarket.com', browser);
-  await probe('cdn.luluhypermarket.com', 'https://cdn.luluhypermarket.com', browser);
-  await probe('gateway.luluhypermarket.com', 'https://gateway.luluhypermarket.com', browser);
+  // ── Test 1: Homepage warmup ──────────────────────────
+  console.log('\n═══ 1. HOMEPAGE WARMUP ═══');
+  try {
+    const page = await context.newPage();
+    const response = await page.goto(BASE_URL, {
+      waitUntil: 'domcontentloaded',
+      timeout: 30000,
+    });
+    const status = response?.status() || 0;
+    const title = await page.title();
+    const bodyText = await page.textContent('body').catch(() => '');
+    const hasCloudflare = bodyText?.includes('Checking your browser') || bodyText?.includes('cf-browser-verification');
 
-  // ── Section 3: Akinon platform API patterns ────────────────
-  console.log('\n═══ 3. AKINON API PATTERNS ═══');
-  // Akinon commerce platform commonly exposes these endpoints
-  const baseUrls = [
-    'https://gcc.luluhypermarket.com',
-    'https://www.luluhypermarket.com',
-  ];
-  for (const base of baseUrls) {
-    const domain = base.replace('https://', '');
-    await probe(`${domain}/api/`, `${base}/api/`, android, { 'Accept': 'application/json' });
-    await probe(`${domain}/api/v1/`, `${base}/api/v1/`, android, { 'Accept': 'application/json' });
-    await probe(`${domain}/api/v2/`, `${base}/api/v2/`, android, { 'Accept': 'application/json' });
-    await probe(`${domain}/ccapi/`, `${base}/ccapi/`, android, { 'Accept': 'application/json' });
+    if (hasCloudflare) {
+      console.log(`⏳ Homepage: ${status} — Cloudflare challenge detected, waiting 8s...`);
+      await page.waitForTimeout(8000);
+      const newTitle = await page.title();
+      const newBody = await page.textContent('body').catch(() => '');
+      const stillBlocked = newBody?.includes('Checking your browser');
+      console.log(`   After wait: title="${newTitle}", still blocked: ${stillBlocked}`);
+    } else {
+      console.log(`✅ Homepage: ${status} — title="${title}"`);
+      const aedCount = (bodyText?.match(/AED\s*[\d,.]+/g) || []).length;
+      console.log(`   AED prices found on homepage: ${aedCount}`);
+    }
+    await page.close();
+  } catch (err: any) {
+    console.log(`❌ Homepage failed: ${err.message}`);
   }
 
-  // ── Section 4: Search endpoints ────────────────────────────
-  console.log('\n═══ 4. SEARCH ENDPOINTS ═══');
-  const searchPaths = [
-    '/en-ae/search/?q=milk',
-    '/api/search?q=milk',
-    '/api/v1/search?q=milk',
-    '/api/v2/search?q=milk',
-    '/search/api/?q=milk',
-    '/ccapi/search/?q=milk',
-    '/ccapi/catalog/products/?search=milk',
-    '/api/catalog/products/?search=milk',
-    '/api/products?search=milk&limit=5',
-    '/en-ae/catalogsearch/result/?q=milk',
-    '/graphql',
-    '/_next/data/',
-  ];
-  for (const path of searchPaths) {
-    await probe(`gcc${path}`, `https://gcc.luluhypermarket.com${path}`, browserCookie, { 'Accept': 'application/json' });
-  }
-
-  // ── Section 5: Mobile-specific JSON API ────────────────────
-  console.log('\n═══ 5. MOBILE APP API ATTEMPTS ═══');
-  // Akinon apps often hit a different API host or specific versioned endpoints
-  const mobileHeaders = {
-    'Accept': 'application/json',
-    'X-Platform': 'android',
-    'X-App-Version': '4.2.0',
-    'X-Device-Type': 'mobile',
-  };
-  await probe('Android /api/search', 'https://gcc.luluhypermarket.com/api/search?q=milk', android, mobileHeaders);
-  await probe('Android /api/v1/products', 'https://gcc.luluhypermarket.com/api/v1/products?search=milk', android, mobileHeaders);
-  await probe('Android /api/catalog', 'https://gcc.luluhypermarket.com/api/catalog/search?q=milk', android, mobileHeaders);
-
-  // POST-based search (some Akinon deployments use POST)
-  console.log('\n═══ 6. POST-BASED SEARCH ═══');
-  const postEndpoints = [
-    'https://gcc.luluhypermarket.com/api/search',
-    'https://gcc.luluhypermarket.com/api/v1/search',
-    'https://gcc.luluhypermarket.com/graphql',
-    'https://gcc.luluhypermarket.com/api/graphql',
-  ];
-  for (const url of postEndpoints) {
+  // ── Test 2: Search pages ──────────────────────────────
+  console.log('\n═══ 2. SEARCH PAGES ═══');
+  for (const term of SEARCH_TERMS) {
+    const url = `${SEARCH_URL}${encodeURIComponent(term)}`;
+    console.log(`\nSearching: "${term}"  →  ${url}`);
     try {
-      const r = await android.post(url, { query: 'milk', q: 'milk', search: 'milk' }, {
-        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      const page = await context.newPage();
+      const response = await page.goto(url, {
+        waitUntil: 'domcontentloaded',
+        timeout: 30000,
       });
-      const body = typeof r.data === 'string' ? r.data : JSON.stringify(r.data);
-      console.log(`POST ${url.replace('https://gcc.luluhypermarket.com', '')}: ${r.status} (${body.length} bytes)`);
-      if (r.status === 200 && body.length > 10) {
-        console.log(`   🟢 ${body.substring(0, 300)}`);
+      const status = response?.status() || 0;
+
+      // Wait for products to appear
+      let productsFound = false;
+      const selectors = [
+        '[data-testid="product-card"]',
+        '.product-card',
+        '[class*="ProductCard"]',
+        'a[class*="line-clamp"]',
+        'span[class*="font-bold"][class*="text-black"]',
+      ];
+
+      for (const sel of selectors) {
+        try {
+          await page.waitForSelector(sel, { timeout: 10000 });
+          const count = await page.locator(sel).count();
+          console.log(`   ✅ Selector "${sel}" matched ${count} elements`);
+          productsFound = true;
+          break;
+        } catch {
+          // not found, try next
+        }
       }
-    } catch (e: any) {
-      console.log(`POST ${url.replace('https://gcc.luluhypermarket.com', '')}: ${e.code || e.message}`);
+
+      if (!productsFound) {
+        // Fallback: check for AED text
+        try {
+          await page.waitForFunction(
+            () => document.body.innerText.includes('AED'),
+            { timeout: 8000 }
+          );
+          productsFound = true;
+          console.log('   ✅ AED text detected on page');
+        } catch {
+          console.log('   ⚠️ No product selectors or AED text found');
+        }
+      }
+
+      // Extract products from the page
+      const products = await page.evaluate(() => {
+        const results: { name: string; price: string }[] = [];
+
+        // Try name+price selectors
+        const nameSelectors = [
+          'a.line-clamp-3', 'a[class*="line-clamp"]',
+          '[data-testid="product-name"]', '.product-name a', 'h3 a', 'h2 a',
+        ];
+        const priceSelectors = [
+          'span.font-bold.text-base.text-black', 'span.font-bold.text-black',
+          '[data-testid="product-price"]', '.product-price', 'span.price',
+        ];
+
+        let names: string[] = [];
+        let prices: string[] = [];
+
+        for (const sel of nameSelectors) {
+          const els = document.querySelectorAll(sel);
+          if (els.length > 0) {
+            els.forEach(el => {
+              const t = (el as HTMLElement).innerText?.trim();
+              if (t && t.length > 2) names.push(t);
+            });
+            break;
+          }
+        }
+        for (const sel of priceSelectors) {
+          const els = document.querySelectorAll(sel);
+          if (els.length > 0) {
+            els.forEach(el => {
+              const t = (el as HTMLElement).innerText?.trim();
+              if (t) prices.push(t);
+            });
+            break;
+          }
+        }
+
+        const count = Math.min(names.length, prices.length, 5);
+        for (let i = 0; i < count; i++) {
+          results.push({ name: names[i], price: prices[i] });
+        }
+
+        // Fallback: AED regex from page text
+        if (results.length === 0) {
+          const text = document.body.innerText || '';
+          const matches = text.match(/(?:AED|aed|د\.إ)\s*[\d,.]+/g) || [];
+          for (const m of matches.slice(0, 5)) {
+            results.push({ name: '(regex)', price: m });
+          }
+        }
+
+        return results;
+      });
+
+      console.log(`   Status: ${status} | Products extracted: ${products.length}`);
+      for (const p of products.slice(0, 5)) {
+        console.log(`     → ${p.name.substring(0, 60)} | ${p.price}`);
+      }
+
+      // Check __NEXT_DATA__
+      const hasNextData = await page.evaluate(() => !!document.getElementById('__NEXT_DATA__'));
+      if (hasNextData) {
+        console.log('   📦 __NEXT_DATA__ found — JSON extraction possible');
+      }
+
+      // Check LD+JSON
+      const ldJsonCount = await page.evaluate(
+        () => document.querySelectorAll('script[type="application/ld+json"]').length
+      );
+      if (ldJsonCount > 0) {
+        console.log(`   📦 ${ldJsonCount} LD+JSON script(s) found`);
+      }
+
+      await page.close();
+    } catch (err: any) {
+      console.log(`   ❌ Search failed: ${err.message}`);
     }
   }
 
-  // ── Section 7: Robots & Sitemap ────────────────────────────
-  console.log('\n═══ 7. ROBOTS & SITEMAP ═══');
-  const robotsResult = await probe('robots.txt', 'https://gcc.luluhypermarket.com/robots.txt', browser);
-  if (robotsResult.status === 200 && robotsResult.bodyLength > 50) {
-    // Look for sitemaps and disallowed paths (hints about API structure)
-    const sitemaps = robotsResult.body.match(/Sitemap:\s*(.*)/gi) || [];
-    const allows = robotsResult.body.match(/Allow:\s*(.*)/gi) || [];
-    if (sitemaps.length > 0) console.log(`   Sitemaps: ${sitemaps.join(', ')}`);
-    if (allows.length > 0) console.log(`   Allow rules: ${allows.slice(0, 10).join(', ')}`);
+  // ── Test 3: Direct product page ────────────────────────
+  console.log('\n═══ 3. DIRECT PRODUCT PAGE TEST ═══');
+  try {
+    const page = await context.newPage();
+    // Navigate to search first, then try to grab a product link
+    await page.goto(`${SEARCH_URL}milk`, {
+      waitUntil: 'domcontentloaded',
+      timeout: 30000,
+    });
+    await page.waitForTimeout(3000);
+
+    const productLink = await page.evaluate(() => {
+      const links = Array.from(document.querySelectorAll('a[href*="/en-ae/"]'));
+      for (const link of links) {
+        const href = (link as HTMLAnchorElement).href;
+        if (href.includes('/p/') || href.match(/\/en-ae\/[a-z].*\/[a-z0-9-]+\/?$/)) {
+          return href;
+        }
+      }
+      return null;
+    });
+
+    if (productLink) {
+      console.log(`Found product link: ${productLink}`);
+      await page.goto(productLink, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      await page.waitForTimeout(2000);
+
+      const productData = await page.evaluate(() => {
+        const title = document.querySelector('h1')?.innerText?.trim() || '(no title)';
+        const priceText = document.body.innerText.match(/(?:AED|aed)\s*([\d,.]+)/);
+        return { title, price: priceText ? priceText[0] : '(no price)' };
+      });
+      console.log(`   ✅ Product: ${productData.title} | ${productData.price}`);
+    } else {
+      console.log('   ⚠️ No product links found on search page');
+    }
+    await page.close();
+  } catch (err: any) {
+    console.log(`   ❌ Product page test failed: ${err.message}`);
   }
-  await probe('sitemap.xml', 'https://gcc.luluhypermarket.com/sitemap.xml', browser);
 
-  // ── Section 8: Alternative GCC subdomains ──────────────────
-  console.log('\n═══ 8. OTHER GCC REGIONS ═══');
-  // Lulu operates across GCC — other regions may have different CF rules
-  await probe('uae (gcc)', 'https://gcc.luluhypermarket.com/en-ae', browser);
-  await probe('oman', 'https://gcc.luluhypermarket.com/en-om', browser);
-  await probe('bahrain', 'https://gcc.luluhypermarket.com/en-bh', browser);
-  await probe('kuwait', 'https://gcc.luluhypermarket.com/en-kw', browser);
-  await probe('qatar', 'https://gcc.luluhypermarket.com/en-qa', browser);
-  await probe('saudi', 'https://gcc.luluhypermarket.com/en-sa', browser);
+  // ── Test 4: Bot detection checks ───────────────────────
+  console.log('\n═══ 4. BOT DETECTION STATUS ═══');
+  try {
+    const page = await context.newPage();
+    await page.goto(BASE_URL, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await page.waitForTimeout(2000);
 
-  console.log('\n═══════════════════════════════════════════════');
-  console.log('DONE. Look for 🟢 markers — those are accessible endpoints.');
-  console.log('If ALL are 403/Cloudflare, the only options are:');
-  console.log('  1. Playwright with stealth plugin (puppeteer-extra-plugin-stealth)');
-  console.log('  2. Use a residential proxy service');
-  console.log('  3. Skip Lulu and track other stores');
-  console.log('═══════════════════════════════════════════════');
+    const botTests = await page.evaluate(() => {
+      return {
+        webdriver: (navigator as any).webdriver,
+        plugins: navigator.plugins.length,
+        languages: navigator.languages?.length || 0,
+        platform: navigator.platform,
+        hardwareConcurrency: navigator.hardwareConcurrency,
+        hasChrome: !!(window as any).chrome,
+        hasCDP: !!(window as any).cdc_adoQpoasnfa76pfcZLmcfl_Array,
+      };
+    });
+
+    console.log(`   navigator.webdriver: ${botTests.webdriver} (should be false/undefined)`);
+    console.log(`   plugins: ${botTests.plugins} (should be > 0)`);
+    console.log(`   languages: ${botTests.languages} (should be > 0)`);
+    console.log(`   platform: ${botTests.platform}`);
+    console.log(`   hardwareConcurrency: ${botTests.hardwareConcurrency}`);
+    console.log(`   window.chrome: ${botTests.hasChrome} (should be true)`);
+    console.log(`   CDP markers: ${botTests.hasCDP} (should be false)`);
+
+    await page.close();
+  } catch (err: any) {
+    console.log(`   ❌ Bot detection check failed: ${err.message}`);
+  }
+
+  await browser.close();
+
+  console.log('\n═══════════════════════════════════════════════════');
+  console.log('DONE. Key results:');
+  console.log('  ✅ = Playwright stealth bypassed Cloudflare, products extracted');
+  console.log('  ⚠️ = Page loaded but no product data found (may need different selectors)');
+  console.log('  ❌ = Still blocked by Cloudflare or network error');
+  console.log('═══════════════════════════════════════════════════');
 }
 
 main().catch(console.error);

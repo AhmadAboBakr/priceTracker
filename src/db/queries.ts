@@ -124,10 +124,11 @@ export class PriceQueries {
    * Detects anomalous prices for each item.
    * An anomaly is a price that deviates more than the given percentage
    * from the trimmed mean (average after removing the highest and lowest values).
+   * Zero and negative prices are excluded from both the query and the average.
    * Returns the IDs of price_history rows flagged as anomalies.
    */
-  detectAnomalies(deviationPct: number = 15): { id: number; itemId: number; storeId: number; price: number; storeName: string; itemName: string; trimmedMean: number }[] {
-    // Get latest prices per item+store
+  detectAnomalies(deviationPct: number = 20): { id: number; itemId: number; storeId: number; price: number; storeName: string; itemName: string; trimmedMean: number }[] {
+    // Get latest prices per item+store, excluding zero/negative prices
     const latestPrices = queryAll(this.db, `
       SELECT ph.id, ph.item_id, ph.store_id, ph.price, ph.scraped_at,
              i.name as item_name, s.name as store_name
@@ -135,6 +136,7 @@ export class PriceQueries {
       INNER JOIN (
         SELECT item_id, store_id, MAX(scraped_at) as max_date
         FROM price_history
+        WHERE price > 0
         GROUP BY item_id, store_id
       ) latest ON ph.item_id = latest.item_id
                AND ph.store_id = latest.store_id
@@ -154,17 +156,19 @@ export class PriceQueries {
     const anomalies: { id: number; itemId: number; storeId: number; price: number; storeName: string; itemName: string; trimmedMean: number }[] = [];
 
     for (const [_itemId, rows] of byItem) {
-      if (rows.length < 3) continue; // Need at least 3 stores to compute trimmed mean
+      // Only rows with price > 0 (already filtered by SQL, but double-check)
+      const validRows = rows.filter((r) => r.price > 0);
+      if (validRows.length < 3) continue; // Need at least 3 stores to compute trimmed mean
 
       // Sort prices to compute trimmed mean (remove highest and lowest)
-      const sorted = [...rows].sort((a, b) => a.price - b.price);
+      const sorted = [...validRows].sort((a, b) => a.price - b.price);
       const trimmed = sorted.slice(1, -1); // Remove min and max
       const trimmedMean = trimmed.reduce((sum, r) => sum + r.price, 0) / trimmed.length;
 
       if (trimmedMean <= 0) continue;
 
       const threshold = deviationPct / 100;
-      for (const row of rows) {
+      for (const row of validRows) {
         const deviation = Math.abs(row.price - trimmedMean) / trimmedMean;
         if (deviation > threshold) {
           anomalies.push({

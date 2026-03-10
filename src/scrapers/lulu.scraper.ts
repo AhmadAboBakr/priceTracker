@@ -15,7 +15,7 @@ export class LuluScraper extends BaseScraper {
   private browser: any = null;
   private context: any = null;
 
-  private static readonly SEARCH_URL = 'https://gcc.luluhypermarket.com/en-ae/search/?q=';
+  private static readonly SEARCH_URL = 'https://gcc.luluhypermarket.com/en-ae/list/?search_text=';
   private static readonly BASE_URL = 'https://gcc.luluhypermarket.com/en-ae';
 
   /** Navigation timeout per page load (ms) */
@@ -28,7 +28,7 @@ export class LuluScraper extends BaseScraper {
       storeId,
       storeName: 'Lulu Hypermarket',
       baseUrl: LuluScraper.BASE_URL,
-      searchUrl: LuluScraper.SEARCH_URL,
+      searchUrl: 'https://gcc.luluhypermarket.com/en-ae/list/?search_text=',
       requestDelay: 3000,
     };
     super(config);

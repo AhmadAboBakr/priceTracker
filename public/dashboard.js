@@ -513,33 +513,38 @@ function setupEventListeners() {
     if (e.key === 'Escape') closeModal();
   });
 
-  // Anomaly detection button
+  // Anomaly buttons
   document.getElementById('anomalyBtn').addEventListener('click', handleAnomalyRemoval);
+  document.getElementById('viewAnomalyBtn').addEventListener('click', handleViewAnomalies);
+  document.getElementById('anomalyModalClose').addEventListener('click', closeAnomalyModal);
+  document.getElementById('anomalyOverlay').addEventListener('click', (e) => {
+    if (e.target === e.currentTarget) closeAnomalyModal();
+  });
 }
 
 // ── Anomaly Detection ─────────────────────────────────
+const ANOMALY_DEVIATION = 20;
+
 async function handleAnomalyRemoval() {
   const btn = document.getElementById('anomalyBtn');
   btn.disabled = true;
   btn.textContent = 'Scanning...';
 
   try {
-    // First, preview anomalies
-    const previewRes = await fetch('/api/anomalies?deviation=15');
+    const previewRes = await fetch(`/api/anomalies?deviation=${ANOMALY_DEVIATION}`);
     const preview = await previewRes.json();
 
     if (preview.count === 0) {
-      alert('No anomalies detected. All prices are within 15% of the trimmed average.');
+      alert(`No anomalies detected. All prices are within ${ANOMALY_DEVIATION}% of the trimmed average.`);
       btn.textContent = 'Remove Anomalies';
       btn.disabled = false;
       return;
     }
 
-    // Build a summary for the confirmation dialog
     const lines = preview.anomalies.map(
       (a) => `${a.itemName} @ ${a.storeName}: AED ${a.price.toFixed(2)} (avg: AED ${a.trimmedMean.toFixed(2)})`
     );
-    const msg = `Found ${preview.count} anomalous price(s) (>15% from trimmed average):\n\n` +
+    const msg = `Found ${preview.count} anomalous price(s) (>${ANOMALY_DEVIATION}% from trimmed average):\n\n` +
       lines.slice(0, 20).join('\n') +
       (lines.length > 20 ? `\n... and ${lines.length - 20} more` : '') +
       '\n\nRemove these prices?';
@@ -550,14 +555,11 @@ async function handleAnomalyRemoval() {
       return;
     }
 
-    // Delete anomalies
     btn.textContent = 'Removing...';
-    const delRes = await fetch('/api/anomalies?deviation=15', { method: 'DELETE' });
+    const delRes = await fetch(`/api/anomalies?deviation=${ANOMALY_DEVIATION}`, { method: 'DELETE' });
     const delResult = await delRes.json();
 
     alert(`Removed ${delResult.removed} anomalous price(s).`);
-
-    // Refresh data
     await Promise.all([loadItems(), loadBasketChart()]);
   } catch (err) {
     console.error('Anomaly removal failed:', err);
@@ -566,4 +568,88 @@ async function handleAnomalyRemoval() {
     btn.textContent = 'Remove Anomalies';
     btn.disabled = false;
   }
+}
+
+// ── View Anomalies List ───────────────────────────────
+async function handleViewAnomalies() {
+  const btn = document.getElementById('viewAnomalyBtn');
+  btn.disabled = true;
+  btn.textContent = 'Loading...';
+
+  try {
+    const res = await fetch(`/api/anomalies?deviation=${ANOMALY_DEVIATION}`);
+    const data = await res.json();
+
+    const listEl = document.getElementById('anomalyList');
+
+    if (data.count === 0) {
+      listEl.innerHTML = `<p style="text-align:center;color:var(--text-secondary);padding:32px">No anomalies found. All prices are within ${ANOMALY_DEVIATION}% of the trimmed average.</p>`;
+      document.getElementById('anomalyOverlay').style.display = 'flex';
+      return;
+    }
+
+    // Group anomalies by item
+    const byItem = {};
+    for (const a of data.anomalies) {
+      if (!byItem[a.itemName]) byItem[a.itemName] = [];
+      byItem[a.itemName].push(a);
+    }
+
+    let html = `<p style="margin-bottom:16px;color:var(--text-secondary);font-size:0.85rem">${data.count} anomalous price(s) found across ${Object.keys(byItem).length} item(s). Prices highlighted in red deviate more than ${ANOMALY_DEVIATION}% from the trimmed average (shown in gray).</p>`;
+    html += '<div style="display:flex;flex-direction:column;gap:12px">';
+
+    for (const [itemName, anomalies] of Object.entries(byItem)) {
+      const itemAnomalies = anomalies;
+      const trimmedMean = itemAnomalies[0].trimmedMean;
+
+      // Get all store prices for this item from the loaded items data
+      const itemData = items.find((i) => i.name === itemName);
+      let allPricesHtml = '';
+
+      if (itemData) {
+        allPricesHtml = stores.map((store) => {
+          const priceData = itemData.prices[store.id];
+          if (!priceData || priceData.price <= 0) return '';
+
+          const css = STORE_CSS[store.id];
+          const isAnomaly = itemAnomalies.some((a) => a.storeId === store.id);
+          const deviationPct = ((Math.abs(priceData.price - trimmedMean) / trimmedMean) * 100).toFixed(1);
+
+          const style = isAnomaly
+            ? 'background:rgba(220,38,38,0.1);border:1px solid rgba(220,38,38,0.3);border-radius:6px;padding:4px 8px'
+            : 'padding:4px 8px';
+
+          return `<div style="display:flex;justify-content:space-between;align-items:center;font-size:0.85rem;${style}">
+            <span><span class="store-dot ${css}"></span>${STORE_NAMES[store.id]}</span>
+            <span>
+              <span style="font-weight:600;${isAnomaly ? 'color:var(--negative)' : ''}">AED ${priceData.price.toFixed(2)}</span>
+              ${isAnomaly ? `<span style="font-size:0.75rem;color:var(--negative);margin-left:6px">(${deviationPct}% off)</span>` : ''}
+            </span>
+          </div>`;
+        }).filter(Boolean).join('');
+      }
+
+      html += `<div style="background:var(--card-bg);border-radius:var(--radius);padding:14px;box-shadow:var(--shadow);border-left:4px solid var(--negative)">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <span style="font-weight:600;font-size:0.95rem">${itemName}</span>
+          <span style="font-size:0.75rem;color:var(--text-secondary);background:var(--bg);padding:2px 8px;border-radius:4px">Trimmed avg: AED ${trimmedMean.toFixed(2)}</span>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:4px">${allPricesHtml}</div>
+      </div>`;
+    }
+
+    html += '</div>';
+    listEl.innerHTML = html;
+    document.getElementById('anomalyOverlay').style.display = 'flex';
+  } catch (err) {
+    console.error('Failed to load anomalies:', err);
+    alert('Failed to load anomalies. Check console for details.');
+  } finally {
+    btn.textContent = 'View Anomalies';
+    btn.disabled = false;
+  }
+}
+
+function closeAnomalyModal() {
+  document.getElementById('anomalyOverlay').style.display = 'none';
 }

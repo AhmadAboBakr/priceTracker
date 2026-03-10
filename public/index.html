@@ -17,7 +17,8 @@
       <a href="/add-prices.html" class="add-prices-link">+ Add Prices</a>
       <a href="/manage-items.html" class="add-prices-link" style="background:rgba(255,255,255,0.15)">Manage Items</a>
       <a href="/manage-stores.html" class="add-prices-link" style="background:rgba(255,255,255,0.15)">Manage Stores</a>
-      <button id="anomalyBtn" class="add-prices-link" style="background:rgba(220,38,38,0.7);border:none;cursor:pointer" title="Detect and remove prices that deviate more than 15% from the trimmed average">Remove Anomalies</button>
+      <button id="viewAnomalyBtn" class="add-prices-link" style="background:rgba(139,92,246,0.7);border:none;cursor:pointer" title="View items with anomalous prices">View Anomalies</button>
+      <button id="anomalyBtn" class="add-prices-link" style="background:rgba(220,38,38,0.7);border:none;cursor:pointer" title="Detect and remove prices that deviate more than 20% from the trimmed average">Remove Anomalies</button>
       <select id="daysFilter">
         <option value="7">Last 7 days</option>
         <option value="30" selected>Last 30 days</option>
@@ -61,6 +62,16 @@
           <canvas id="itemChart"></canvas>
         </div>
         <div id="modalInfo" class="modal-info"></div>
+      </div>
+    </div>
+    <!-- Anomaly List Modal -->
+    <div class="modal-overlay" id="anomalyOverlay" style="display:none">
+      <div class="modal" style="width:min(95vw,850px)">
+        <div class="modal-header">
+          <h3>Price Anomalies (>20% from trimmed average)</h3>
+          <button class="modal-close" id="anomalyModalClose">&times;</button>
+        </div>
+        <div id="anomalyList" style="max-height:60vh;overflow-y:auto"></div>
       </div>
     </div>
   </main>
