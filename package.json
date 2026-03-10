@@ -10,7 +10,9 @@
     "seed": "ts-node src/db/seed.ts",
     "dev": "ts-node src/server/app.ts",
     "sample-data": "ts-node src/db/generate-sample-data.ts",
-    "reset-prices": "ts-node src/db/reset-prices.ts"
+    "reset-prices": "ts-node src/db/reset-prices.ts",
+    "seed:expanded": "ts-node src/db/seed-expanded.ts",
+    "probe-stores": "ts-node src/scrapers/probe-stores.ts"
   },
   "dependencies": {
     "axios": "^1.13.6",
