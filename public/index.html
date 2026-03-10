@@ -56,7 +56,10 @@
       <div class="modal">
         <div class="modal-header">
           <h3 id="modalTitle">Item Details</h3>
-          <button class="modal-close" id="modalClose">&times;</button>
+          <div style="display:flex;align-items:center;gap:8px">
+            <button id="modalDeleteBtn" onclick="deleteCurrentItem()" title="Delete this item" style="background:var(--negative);color:#fff;border:none;border-radius:6px;padding:6px 14px;cursor:pointer;font-size:0.8rem;opacity:0.85;transition:opacity .2s" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.85">Delete Item</button>
+            <button class="modal-close" id="modalClose">&times;</button>
+          </div>
         </div>
         <div class="chart-container">
           <canvas id="itemChart"></canvas>

@@ -18,6 +18,7 @@ let basketChart = null;
 let itemChart = null;
 let currentDays = 30;
 let currentCategory = 'all';
+let currentItemId = null;
 
 // ── Init ────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
@@ -375,6 +376,7 @@ async function showItemDetail(itemId) {
   const item = items.find((i) => i.id === itemId);
   if (!item) return;
 
+  currentItemId = itemId;
   document.getElementById('modalTitle').textContent =
     `${item.name} (${item.standardSize})`;
   document.getElementById('modalOverlay').style.display = 'flex';
@@ -486,9 +488,42 @@ function renderItemChart(data, item) {
 
 function closeModal() {
   document.getElementById('modalOverlay').style.display = 'none';
+  currentItemId = null;
   if (itemChart) {
     itemChart.destroy();
     itemChart = null;
+  }
+}
+
+async function deleteCurrentItem() {
+  if (!currentItemId) return;
+
+  const item = items.find((i) => i.id === currentItemId);
+  const name = item ? item.name : `Item #${currentItemId}`;
+
+  if (!confirm(`Delete "${name}" and all its price history? This cannot be undone.`)) return;
+
+  const btn = document.getElementById('modalDeleteBtn');
+  btn.disabled = true;
+  btn.textContent = 'Deleting...';
+
+  try {
+    const res = await fetch(`/api/items/${currentItemId}`, { method: 'DELETE' });
+    const result = await res.json();
+
+    if (res.ok) {
+      closeModal();
+      await Promise.all([loadItems(), loadBasketChart()]);
+    } else {
+      alert(result.error || 'Failed to delete item.');
+      btn.disabled = false;
+      btn.textContent = 'Delete Item';
+    }
+  } catch (err) {
+    console.error('Failed to delete item:', err);
+    alert('Failed to delete item. Check console for details.');
+    btn.disabled = false;
+    btn.textContent = 'Delete Item';
   }
 }
 

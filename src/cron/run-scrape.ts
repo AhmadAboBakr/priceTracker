@@ -4,22 +4,58 @@ import { scrapeAllStores } from '../scrapers';
 import { logger } from '../utils/logger';
 
 /**
- * Main entry point for the daily scrape cron job.
- * Run via: npx ts-node src/cron/run-scrape.ts
+ * Main entry point for the scrape job.
+ *
+ * Usage:
+ *   npx ts-node src/cron/run-scrape.ts                  # scrape all stores
+ *   npx ts-node src/cron/run-scrape.ts --store Lulu      # scrape one store (partial match, case-insensitive)
+ *   npx ts-node src/cron/run-scrape.ts --store "Union Coop"
+ *   npx ts-node src/cron/run-scrape.ts --list            # list available store names
+ *
  * Or schedule with crontab: 0 8 * * * cd /path/to/project && npx ts-node src/cron/run-scrape.ts
  */
 async function runScrape(): Promise<void> {
   const jobStart = new Date().toISOString();
-  logger.info({ startedAt: jobStart }, 'Daily scrape job starting');
 
   const db = await getDatabase();
   const queries = new PriceQueries(db);
 
-  const stores = queries.getAllStores();
-  if (stores.length === 0) {
+  let allStores = queries.getAllStores();
+  if (allStores.length === 0) {
     logger.error('No stores found in database. Run seed first: npm run seed');
     process.exit(1);
   }
+
+  // ── CLI flags ──────────────────────────────────────
+  const args = process.argv.slice(2);
+
+  if (args.includes('--list')) {
+    console.log('\nAvailable stores:');
+    for (const s of allStores) {
+      console.log(`  • ${s.name}  (id: ${s.id})`);
+    }
+    process.exit(0);
+  }
+
+  const storeIdx = args.indexOf('--store');
+  if (storeIdx !== -1) {
+    const storeArg = args[storeIdx + 1];
+    if (!storeArg) {
+      console.error('Error: --store requires a store name argument');
+      process.exit(1);
+    }
+    const needle = storeArg.toLowerCase();
+    const matched = allStores.filter((s) => s.name.toLowerCase().includes(needle));
+    if (matched.length === 0) {
+      console.error(`No store matching "${storeArg}". Use --list to see available stores.`);
+      process.exit(1);
+    }
+    allStores = matched;
+    logger.info({ stores: allStores.map((s) => s.name) }, `Scraping filtered store(s)`);
+  }
+
+  const stores = allStores;
+  logger.info({ startedAt: jobStart, storeCount: stores.length }, 'Scrape job starting');
 
   // Build item lists per store from mappings
   const itemsByStore = new Map<number, { itemId: number; searchQuery: string }[]>();
