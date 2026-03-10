@@ -1,18 +1,26 @@
 import { BaseScraper, ScrapeResult, StoreConfig } from './base-scraper';
+import * as cheerio from 'cheerio';
 import { logger } from '../utils/logger';
 
 /**
  * Scraper for Spinneys UAE (spinneys.com).
- * Spinneys uses a custom frontend. We try their search API endpoint
- * and fall back to HTML parsing with AED price extraction.
+ * Uses either the product-autocomplete endpoint (returns HTML) or
+ * the full search page. Product cards use `.js-product-wrapper` with
+ * `p.product-name > a` for names and `p.product-price > span.price`
+ * for numeric prices.
  */
 export class SpinneysScraper extends BaseScraper {
+  private static readonly AUTOCOMPLETE_URL =
+    'https://www.spinneys.com/en-ae/search/product-autocomplete/?q=';
+  private static readonly SEARCH_URL =
+    'https://www.spinneys.com/en-ae/search/?q=';
+
   constructor(storeId: number) {
     const config: StoreConfig = {
       storeId,
       storeName: 'Spinneys',
       baseUrl: 'https://www.spinneys.com',
-      searchUrl: 'https://www.spinneys.com/search?q=',
+      searchUrl: SpinneysScraper.SEARCH_URL,
       requestDelay: 2000,
       useCookieJar: true,
     };
@@ -23,13 +31,17 @@ export class SpinneysScraper extends BaseScraper {
     itemId: number,
     searchQuery: string
   ): Promise<ScrapeResult> {
-    // Strategy 1: Try search API endpoint
-    const apiResult = await this.trySearchApi(searchQuery, itemId);
-    if (apiResult) return apiResult;
+    // Strategy 1: Autocomplete API (fast, lightweight HTML)
+    const autoResult = await this.tryAutocomplete(searchQuery, itemId);
+    if (autoResult) return autoResult;
 
-    // Strategy 2: Parse search page HTML
-    const htmlResult = await this.tryHtmlParse(searchQuery, itemId);
+    // Strategy 2: Full search page HTML
+    const htmlResult = await this.trySearchPage(searchQuery, itemId);
     if (htmlResult) return htmlResult;
+
+    // Strategy 3: AED regex fallback on search page
+    const regexResult = await this.tryAedRegex(searchQuery, itemId);
+    if (regexResult) return regexResult;
 
     logger.warn({ store: this.config.storeName, itemId, searchQuery }, 'No price found');
     return {
@@ -43,180 +55,186 @@ export class SpinneysScraper extends BaseScraper {
     };
   }
 
-  /// Tries various API patterns Spinneys might use.
-  private async trySearchApi(
+  /**
+   * Tries the autocomplete endpoint which returns JSON with HTML fragments.
+   * The response shape is:
+   *   { product_items_count, product_items_html, product_swiper_html, ... }
+   * Product data lives in `product_swiper_html` (contains .js-product-wrapper cards).
+   */
+  private async tryAutocomplete(
     searchQuery: string,
     itemId: number
   ): Promise<ScrapeResult | null> {
-    const encoded = encodeURIComponent(searchQuery);
-    const apiUrls = [
-      `${this.config.baseUrl}/api/search?q=${encoded}&limit=5`,
-      `${this.config.baseUrl}/api/products/search?q=${encoded}&limit=5`,
-      `${this.config.baseUrl}/api/v1/search?q=${encoded}&limit=5`,
-    ];
+    const url = `${SpinneysScraper.AUTOCOMPLETE_URL}${encodeURIComponent(searchQuery)}`;
 
-    for (const url of apiUrls) {
-      try {
-        const response = await this.http.get(url, {
-          headers: {
-            Accept: 'application/json',
-            Referer: this.config.baseUrl,
-          },
-          timeout: 10000,
-        });
+    try {
+      const response = await this.http.get(url, {
+        headers: {
+          'Accept': 'application/json, text/html, */*',
+          'Referer': 'https://www.spinneys.com/en-ae/',
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+        timeout: 10000,
+      });
 
-        const data = response.data;
-        if (typeof data !== 'object' || data === null) continue;
+      let html = '';
 
-        const products = this.findProductsInJson(data);
-        if (products.length > 0) {
-          const best = this.findBestMatch(products, searchQuery);
-          if (best && this.validatePrice(best.price, searchQuery)) {
-            logger.info(
-              {
-                store: this.config.storeName,
-                itemId,
-                price: best.price,
-                productName: best.name,
-                method: 'search-api',
-              },
-              'Price found via search API'
-            );
-            return {
-              itemId,
-              storeId: this.config.storeId,
-              searchQuery,
-              productName: best.name,
-              price: best.price,
-              success: true,
-            };
-          }
-        }
-      } catch (e) {
-        logger.debug(
-          { store: this.config.storeName, error: (e as Error).message },
-          'Search API attempt failed'
-        );
+      // Response may be JSON (with product_swiper_html field) or raw HTML
+      if (typeof response.data === 'object' && response.data !== null) {
+        // JSON response — extract the HTML fragment that contains product cards
+        html = response.data.product_swiper_html || response.data.product_items_html || '';
+      } else {
+        html = typeof response.data === 'string' ? response.data : String(response.data);
       }
+
+      if (html.length < 50) return null;
+
+      const products = this.extractProductsFromHtml(html);
+      if (products.length > 0) {
+        const best = this.findBestMatch(products, searchQuery);
+        if (best && this.validatePrice(best.price, searchQuery)) {
+          logger.info(
+            { store: this.config.storeName, itemId, price: best.price, productName: best.name, method: 'autocomplete' },
+            'Price found via autocomplete'
+          );
+          return {
+            itemId,
+            storeId: this.config.storeId,
+            searchQuery,
+            productName: best.name,
+            price: best.price,
+            success: true,
+          };
+        }
+      }
+    } catch (e) {
+      logger.debug(
+        { store: this.config.storeName, error: (e as Error).message },
+        'Autocomplete request failed'
+      );
     }
 
     return null;
   }
 
-  /// Parses the search page HTML for product data.
-  private async tryHtmlParse(
+  /** Fetches the full search results page and extracts products */
+  private async trySearchPage(
     searchQuery: string,
     itemId: number
   ): Promise<ScrapeResult | null> {
-    const url = `${this.config.searchUrl}${encodeURIComponent(searchQuery)}`;
+    const url = `${SpinneysScraper.SEARCH_URL}${encodeURIComponent(searchQuery)}`;
 
     try {
       const response = await this.http.get(url, {
-        headers: { Referer: this.config.baseUrl },
+        headers: { Referer: 'https://www.spinneys.com/en-ae/' },
+        timeout: 15000,
       });
 
       const html: string =
-        typeof response.data === 'string'
-          ? response.data
-          : String(response.data);
+        typeof response.data === 'string' ? response.data : String(response.data);
 
       if (html.length < 500) return null;
 
-      // Check for __NEXT_DATA__
-      const nextDataMatch = html.match(
-        /<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/
+      const products = this.extractProductsFromHtml(html);
+      if (products.length > 0) {
+        const best = this.findBestMatch(products, searchQuery);
+        if (best && this.validatePrice(best.price, searchQuery)) {
+          logger.info(
+            { store: this.config.storeName, itemId, price: best.price, productName: best.name, method: 'search-page' },
+            'Price found via search page'
+          );
+          return {
+            itemId,
+            storeId: this.config.storeId,
+            searchQuery,
+            productName: best.name,
+            price: best.price,
+            success: true,
+          };
+        }
+      }
+    } catch (e) {
+      logger.debug(
+        { store: this.config.storeName, error: (e as Error).message },
+        'Search page request failed'
       );
-      if (nextDataMatch) {
-        try {
-          const nextData = JSON.parse(nextDataMatch[1]);
-          const products = this.findProductsInJson(nextData);
-          if (products.length > 0) {
-            const best = this.findBestMatch(products, searchQuery);
-            if (best && this.validatePrice(best.price, searchQuery)) {
-              logger.info(
-                {
-                  store: this.config.storeName,
-                  itemId,
-                  price: best.price,
-                  productName: best.name,
-                  method: 'next-data',
-                },
-                'Price found via __NEXT_DATA__'
-              );
-              return {
-                itemId,
-                storeId: this.config.storeId,
-                searchQuery,
-                productName: best.name,
-                price: best.price,
-                success: true,
-              };
-            }
-          }
-        } catch {
-          /* malformed JSON */
+    }
+
+    return null;
+  }
+
+  /**
+   * Extracts product name/price pairs from Spinneys HTML.
+   * Looks for `.js-product-wrapper` cards with `p.product-name a` and
+   * `p.product-price span.price`.
+   */
+  private extractProductsFromHtml(html: string): { name: string; price: number }[] {
+    const $ = cheerio.load(html);
+    const products: { name: string; price: number }[] = [];
+
+    // Primary: Spinneys-specific selectors discovered from live site
+    $('.js-product-wrapper').each((_i, el) => {
+      const $card = $(el);
+
+      // Product name from p.product-name > a
+      const name =
+        $card.find('p.product-name a').first().text().trim() ||
+        $card.find('.product-name a').first().text().trim() ||
+        $card.find('a[title]').first().attr('title')?.trim() ||
+        '';
+
+      // Price from p.product-price > span.price (numeric only, no currency)
+      const priceText =
+        $card.find('p.product-price span.price').first().text().trim() ||
+        $card.find('.product-price .price').first().text().trim() ||
+        '';
+
+      if (name && name.length > 2 && priceText) {
+        const num = parseFloat(priceText.replace(/[^\d.]/g, ''));
+        if (!isNaN(num) && num > 0.5 && num < 2000) {
+          products.push({ name, price: num });
         }
       }
+    });
 
-      // Try embedded JSON in script tags
-      const scriptPattern =
-        /<script[^>]*>([\s\S]*?)<\/script>/gi;
-      let scriptMatch;
-      while ((scriptMatch = scriptPattern.exec(html)) !== null) {
-        const content = scriptMatch[1];
-        if (content.includes('"price"') && content.includes('"name"')) {
-          try {
-            // Try to find JSON object boundaries
-            const jsonPattern = /\{[^{}]*"name"\s*:\s*"[^"]+?"[^{}]*"price"\s*:\s*[\d.]+[^{}]*\}/g;
-            let jsonMatch;
-            const products: { name: string; price: number }[] = [];
-            while ((jsonMatch = jsonPattern.exec(content)) !== null) {
-              try {
-                const obj = JSON.parse(jsonMatch[0]);
-                const name = obj.name || obj.title;
-                const price = obj.price || obj.sale_price || obj.final_price;
-                if (name && price) {
-                  const num = parseFloat(String(price));
-                  if (!isNaN(num) && num > 0.5 && num < 2000) {
-                    products.push({ name: String(name), price: num });
-                  }
-                }
-              } catch {
-                /* not valid JSON */
-              }
-            }
+    // Fallback: Generic product card selectors
+    if (products.length === 0) {
+      $('[class*="product-card"], [class*="ProductCard"], .product-item').each((_i, el) => {
+        const $card = $(el);
+        const name =
+          $card.find('[class*="name"] a, [class*="title"] a, h3 a, h4 a').first().text().trim();
+        const priceText =
+          $card.find('[class*="price"]').first().text().trim();
 
-            if (products.length > 0) {
-              const best = this.findBestMatch(products, searchQuery);
-              if (best && this.validatePrice(best.price, searchQuery)) {
-                logger.info(
-                  {
-                    store: this.config.storeName,
-                    itemId,
-                    price: best.price,
-                    productName: best.name,
-                    method: 'embedded-json',
-                  },
-                  'Price found via embedded JSON'
-                );
-                return {
-                  itemId,
-                  storeId: this.config.storeId,
-                  searchQuery,
-                  productName: best.name,
-                  price: best.price,
-                  success: true,
-                };
-              }
-            }
-          } catch {
-            /* skip */
+        if (name && name.length > 2 && priceText) {
+          const num = parseFloat(priceText.replace(/[^\d.]/g, ''));
+          if (!isNaN(num) && num > 0.5 && num < 2000) {
+            products.push({ name, price: num });
           }
         }
-      }
+      });
+    }
 
-      // AED regex fallback
-      const aedPattern = /(?:AED|aed|د\.إ)\s*([\d,.]+)/g;
+    return products;
+  }
+
+  /** AED regex fallback on search page text */
+  private async tryAedRegex(
+    searchQuery: string,
+    itemId: number
+  ): Promise<ScrapeResult | null> {
+    const url = `${SpinneysScraper.SEARCH_URL}${encodeURIComponent(searchQuery)}`;
+
+    try {
+      const response = await this.http.get(url, {
+        headers: { Referer: 'https://www.spinneys.com/en-ae/' },
+        timeout: 15000,
+      });
+
+      const html: string =
+        typeof response.data === 'string' ? response.data : String(response.data);
+
+      const aedPattern = /(?:AED|aed)\s*([\d,.]+)/g;
       let match;
       const prices: number[] = [];
       while ((match = aedPattern.exec(html)) !== null) {
@@ -225,19 +243,10 @@ export class SpinneysScraper extends BaseScraper {
       }
 
       if (prices.length > 0) {
-        const freq = new Map<number, number>();
-        for (const p of prices) freq.set(p, (freq.get(p) || 0) + 1);
-        const sorted = [...freq.entries()].sort((a, b) => b[1] - a[1]);
-        const bestPrice = sorted[0][0];
-
-        if (this.validatePrice(bestPrice, searchQuery)) {
+        const price = prices[0];
+        if (this.validatePrice(price, searchQuery)) {
           logger.info(
-            {
-              store: this.config.storeName,
-              itemId,
-              price: bestPrice,
-              method: 'aed-regex',
-            },
+            { store: this.config.storeName, itemId, price, method: 'aed-regex' },
             'Price found via AED regex'
           );
           return {
@@ -245,7 +254,7 @@ export class SpinneysScraper extends BaseScraper {
             storeId: this.config.storeId,
             searchQuery,
             productName: searchQuery,
-            price: bestPrice,
+            price,
             success: true,
           };
         }
@@ -253,7 +262,7 @@ export class SpinneysScraper extends BaseScraper {
     } catch (e) {
       logger.debug(
         { store: this.config.storeName, error: (e as Error).message },
-        'HTML parse failed'
+        'AED regex fallback failed'
       );
     }
 

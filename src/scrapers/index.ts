@@ -18,7 +18,7 @@ const DISABLED_STORES = new Set<string>([
   // 'Lulu Hypermarket',  // RE-ENABLED — now uses Playwright stealth
   'Kibsons',
 
-  // GraphQL 403 / search 404 — locked down
+  // Corporate site only — no online store or e-commerce
   'West Zone',
 
   // Not real Magento — GraphQL returns HTML, no product data
@@ -27,8 +27,8 @@ const DISABLED_STORES = new Set<string>([
   // Magento markers but GraphQL 404, search 404 — locked down
   'Al Madina',
 
-  // SPA shell — search returns 20KB with 0 AED prices, needs JS rendering
-  'Spinneys',
+  // RE-ENABLED — autocomplete API + cheerio (.js-product-wrapper cards)
+  // 'Spinneys',
 ]);
 
 /** Maps store names to their scraper constructors */
@@ -40,12 +40,12 @@ const SCRAPER_MAP: Record<string, (storeId: number) => BaseScraper> = {
   'Barakat': (id) => new BarakatScraper(id),              // Next.js + AED prices ✅
   'Carrefour UAE': (id) => new CarrefourScraper(id),      // Cookie jar + escaped JSON ✅
 
-  // ─── Needs testing ─────────────────────────
-  'Choithrams': (id) => new ChoithramsScraper(id),        // Custom platform, probing
+  // ─── Server-rendered HTML scrapers ────────
+  'Choithrams': (id) => new ChoithramsScraper(id),        // SSR search + cheerio ✅
+  'Spinneys': (id) => new SpinneysScraper(id),            // Autocomplete API + cheerio ✅
 
   // ─── Playwright stealth (Cloudflare bypass) ──
   'Lulu Hypermarket': (id) => new LuluScraper(id),       // Playwright + stealth ✅
-  'Spinneys': (id) => new SpinneysScraper(id),
   'Kibsons': (id) => new SpinneysScraper(id),             // Placeholder — Cloudflare
   'West Zone': (id) => new GrandioseScraper(id),          // Placeholder — blocked
   'VIVA Supermarket': (id) => new GrandioseScraper(id),   // Placeholder — not Magento

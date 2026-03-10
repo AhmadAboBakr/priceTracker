@@ -122,10 +122,10 @@ export class PriceQueries {
 
   /**
    * Detects anomalous prices for each item.
-   * An anomaly is a price that deviates more than the given percentage
-   * from the trimmed mean (average after removing the highest and lowest values).
-   * Zero and negative prices are excluded from both the query and the average.
-   * Returns the IDs of price_history rows flagged as anomalies.
+   * Uses the **median** price across stores as the reference point (robust to outliers).
+   * Only flags prices where fewer than half the stores agree with that price range,
+   * preventing the majority of correct prices from being flagged when one store is wrong.
+   * Zero and negative prices are excluded.
    */
   detectAnomalies(deviationPct: number = 20): { id: number; itemId: number; storeId: number; price: number; storeName: string; itemName: string; trimmedMean: number }[] {
     // Get latest prices per item+store, excluding zero/negative prices
@@ -156,20 +156,32 @@ export class PriceQueries {
     const anomalies: { id: number; itemId: number; storeId: number; price: number; storeName: string; itemName: string; trimmedMean: number }[] = [];
 
     for (const [_itemId, rows] of byItem) {
-      // Only rows with price > 0 (already filtered by SQL, but double-check)
       const validRows = rows.filter((r) => r.price > 0);
-      if (validRows.length < 3) continue; // Need at least 3 stores to compute trimmed mean
+      if (validRows.length < 3) continue;
 
-      // Sort prices to compute trimmed mean (remove highest and lowest)
+      // Use MEDIAN as reference — immune to outliers
       const sorted = [...validRows].sort((a, b) => a.price - b.price);
-      const trimmed = sorted.slice(1, -1); // Remove min and max
-      const trimmedMean = trimmed.reduce((sum, r) => sum + r.price, 0) / trimmed.length;
+      const mid = Math.floor(sorted.length / 2);
+      const median =
+        sorted.length % 2 === 0
+          ? (sorted[mid - 1].price + sorted[mid].price) / 2
+          : sorted[mid].price;
 
-      if (trimmedMean <= 0) continue;
+      if (median <= 0) continue;
 
       const threshold = deviationPct / 100;
+
+      // Count how many stores are within the acceptable range of the median
+      const inRange = validRows.filter(
+        (r) => Math.abs(r.price - median) / median <= threshold
+      );
+
+      // Safety: only flag outliers when the MAJORITY of stores agree on the price range.
+      // If more than half would be flagged, something is wrong — skip this item entirely.
+      if (inRange.length < validRows.length / 2) continue;
+
       for (const row of validRows) {
-        const deviation = Math.abs(row.price - trimmedMean) / trimmedMean;
+        const deviation = Math.abs(row.price - median) / median;
         if (deviation > threshold) {
           anomalies.push({
             id: row.id,
@@ -178,7 +190,7 @@ export class PriceQueries {
             price: row.price,
             storeName: row.store_name,
             itemName: row.item_name,
-            trimmedMean: parseFloat(trimmedMean.toFixed(2)),
+            trimmedMean: parseFloat(median.toFixed(2)), // field kept as "trimmedMean" for API compat
           });
         }
       }

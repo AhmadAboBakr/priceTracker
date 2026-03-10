@@ -535,7 +535,7 @@ async function handleAnomalyRemoval() {
     const preview = await previewRes.json();
 
     if (preview.count === 0) {
-      alert(`No anomalies detected. All prices are within ${ANOMALY_DEVIATION}% of the trimmed average.`);
+      alert(`No anomalies detected. All prices are within ${ANOMALY_DEVIATION}% of the median.`);
       btn.textContent = 'Remove Anomalies';
       btn.disabled = false;
       return;
@@ -544,7 +544,7 @@ async function handleAnomalyRemoval() {
     const lines = preview.anomalies.map(
       (a) => `${a.itemName} @ ${a.storeName}: AED ${a.price.toFixed(2)} (avg: AED ${a.trimmedMean.toFixed(2)})`
     );
-    const msg = `Found ${preview.count} anomalous price(s) (>${ANOMALY_DEVIATION}% from trimmed average):\n\n` +
+    const msg = `Found ${preview.count} anomalous price(s) (>${ANOMALY_DEVIATION}% from median):\n\n` +
       lines.slice(0, 20).join('\n') +
       (lines.length > 20 ? `\n... and ${lines.length - 20} more` : '') +
       '\n\nRemove these prices?';
@@ -583,7 +583,7 @@ async function handleViewAnomalies() {
     const listEl = document.getElementById('anomalyList');
 
     if (data.count === 0) {
-      listEl.innerHTML = `<p style="text-align:center;color:var(--text-secondary);padding:32px">No anomalies found. All prices are within ${ANOMALY_DEVIATION}% of the trimmed average.</p>`;
+      listEl.innerHTML = `<p style="text-align:center;color:var(--text-secondary);padding:32px">No anomalies found. All prices are within ${ANOMALY_DEVIATION}% of the median.</p>`;
       document.getElementById('anomalyOverlay').style.display = 'flex';
       return;
     }
@@ -595,7 +595,7 @@ async function handleViewAnomalies() {
       byItem[a.itemName].push(a);
     }
 
-    let html = `<p style="margin-bottom:16px;color:var(--text-secondary);font-size:0.85rem">${data.count} anomalous price(s) found across ${Object.keys(byItem).length} item(s). Prices highlighted in red deviate more than ${ANOMALY_DEVIATION}% from the trimmed average (shown in gray).</p>`;
+    let html = `<p style="margin-bottom:16px;color:var(--text-secondary);font-size:0.85rem">${data.count} anomalous price(s) found across ${Object.keys(byItem).length} item(s). Prices highlighted in red deviate more than ${ANOMALY_DEVIATION}% from the median (shown in gray).</p>`;
     html += '<div style="display:flex;flex-direction:column;gap:12px">';
 
     for (const [itemName, anomalies] of Object.entries(byItem)) {
@@ -632,7 +632,7 @@ async function handleViewAnomalies() {
       html += `<div style="background:var(--card-bg);border-radius:var(--radius);padding:14px;box-shadow:var(--shadow);border-left:4px solid var(--negative)">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
           <span style="font-weight:600;font-size:0.95rem">${itemName}</span>
-          <span style="font-size:0.75rem;color:var(--text-secondary);background:var(--bg);padding:2px 8px;border-radius:4px">Trimmed avg: AED ${trimmedMean.toFixed(2)}</span>
+          <span style="font-size:0.75rem;color:var(--text-secondary);background:var(--bg);padding:2px 8px;border-radius:4px">Median: AED ${trimmedMean.toFixed(2)}</span>
         </div>
         <div style="display:flex;flex-direction:column;gap:4px">${allPricesHtml}</div>
       </div>`;

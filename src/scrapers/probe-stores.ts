@@ -37,13 +37,15 @@ const STORES: StoreProbe[] = [
   {
     name: 'Choithrams',
     baseUrl: 'https://www.choithrams.com',
-    searchUrl: 'https://www.choithrams.com/catalogsearch/result/?q=milk',
-    graphqlUrl: 'https://www.choithrams.com/graphql',
+    searchUrl: 'https://www.choithrams.com/en/search/?q=milk',
+    // No GraphQL — server-rendered HTML, .js-product-wrapper cards
   },
   {
     name: 'Spinneys',
     baseUrl: 'https://www.spinneys.com',
-    searchUrl: 'https://www.spinneys.com/search?q=milk',
+    searchUrl: 'https://www.spinneys.com/en-ae/search/?q=milk',
+    apiUrl: 'https://www.spinneys.com/en-ae/search/product-autocomplete/?q=milk',
+    // No GraphQL — .js-product-wrapper cards, autocomplete returns HTML
   },
   {
     name: 'Grandiose',
@@ -65,8 +67,8 @@ const STORES: StoreProbe[] = [
   {
     name: 'West Zone',
     baseUrl: 'https://www.westzone.com',
-    searchUrl: 'https://www.westzone.com/catalogsearch/result/?q=milk',
-    graphqlUrl: 'https://www.westzone.com/graphql',
+    searchUrl: 'https://www.westzone.com/search?q=milk',
+    // Corporate site only — no online store or e-commerce
   },
   {
     name: 'Noon Grocery',
@@ -157,15 +159,25 @@ async function probeSearch(store: StoreProbe, http: any) {
     // Check for AED prices
     const aedMatches = body.match(/(?:AED|aed|د\.إ)\s*[\d,.]+/g) || [];
 
+    // Check for Choithrams dirham font prices (D3.50 format)
+    const dirhamMatches = body.match(/D[\d]+\.[\d]{2}/g) || [];
+
+    // Check for product wrappers (.js-product-wrapper used by Spinneys & Choithrams)
+    const jsProductWrappers = (body.match(/js-product-wrapper/g) || []).length;
+
     // Check for JSON product data
     const hasLdJson = body.includes('application/ld+json');
     const hasProductItems = body.includes('product-item') || body.includes('product-card');
     const priceEscaped = (body.match(/\\"price\\":\s*[\d.]+/g) || []).length;
 
     console.log(`   Search page: ${r.status} (${body.length} bytes)`);
-    console.log(`   AED prices found: ${aedMatches.length} | LD+JSON: ${hasLdJson} | Product items: ${hasProductItems} | Escaped prices: ${priceEscaped}`);
+    console.log(`   AED prices: ${aedMatches.length} | Dirham (D) prices: ${dirhamMatches.length} | .js-product-wrapper: ${jsProductWrappers}`);
+    console.log(`   LD+JSON: ${hasLdJson} | Product items: ${hasProductItems} | Escaped prices: ${priceEscaped}`);
     if (aedMatches.length > 0) {
-      console.log(`   Sample prices: ${aedMatches.slice(0, 5).join(', ')}`);
+      console.log(`   Sample AED prices: ${aedMatches.slice(0, 5).join(', ')}`);
+    }
+    if (dirhamMatches.length > 0) {
+      console.log(`   Sample dirham prices: ${dirhamMatches.slice(0, 5).join(', ')}`);
     }
   } catch (e: any) {
     console.log(`   Search failed: ${e.response?.status || e.message}`);
@@ -176,11 +188,23 @@ async function probeApi(store: StoreProbe, http: any) {
   if (!store.apiUrl) return;
   try {
     const r = await http.get(store.apiUrl, {
-      headers: { 'Accept': 'application/json', 'Referer': store.baseUrl },
+      headers: { 'Accept': 'application/json, text/html, */*', 'Referer': store.baseUrl, 'X-Requested-With': 'XMLHttpRequest' },
     });
     const data = r.data;
-    const json = typeof data === 'string' ? data : JSON.stringify(data);
-    console.log(`   🟢 API responded: ${json.substring(0, 300)}`);
+
+    // Spinneys autocomplete returns JSON with product_swiper_html containing product cards
+    if (typeof data === 'object' && data !== null && data.product_swiper_html) {
+      const swiperLen = (data.product_swiper_html || '').length;
+      const productCount = ((data.product_swiper_html || '').match(/js-product-wrapper/g) || []).length;
+      const priceMatches = ((data.product_swiper_html || '').match(/class="price">([\d.]+)</g) || []);
+      console.log(`   🟢 API responded (JSON): product_swiper_html=${swiperLen} bytes, ${productCount} product cards`);
+      if (priceMatches.length > 0) {
+        console.log(`   Sample prices: ${priceMatches.slice(0, 5).map((m: string) => m.replace('class="price">', 'AED ')).join(', ')}`);
+      }
+    } else {
+      const json = typeof data === 'string' ? data : JSON.stringify(data);
+      console.log(`   🟢 API responded: ${json.substring(0, 300)}`);
+    }
   } catch (e: any) {
     console.log(`   🔴 API failed: ${e.response?.status || e.message}`);
   }
