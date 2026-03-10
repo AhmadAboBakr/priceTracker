@@ -2,18 +2,54 @@ import { BaseScraper, ScrapeResult } from './base-scraper';
 import { LuluScraper } from './lulu.scraper';
 import { CarrefourScraper } from './carrefour.scraper';
 import { UnionCoopScraper } from './union-coop.scraper';
+import { GrandioseScraper } from './magento.scraper';
+import { NoonScraper } from './noon.scraper';
+import { SpinneysScraper } from './spinneys.scraper';
+import { BarakatScraper } from './barakat.scraper';
+import { ChoithramsScraper } from './choithrams.scraper';
 import { logger } from '../utils/logger';
 
-/** Stores to skip during scraping (re-enable by removing from this set) */
-const DISABLED_STORES = new Set([
-  'Carrefour UAE',  // TODO: re-enable once anti-bot issues are resolved
+/**
+ * Stores to skip during scraping.
+ * Re-enable by removing from this set once a working approach is found.
+ */
+const DISABLED_STORES = new Set<string>([
+  // Cloudflare WAF blocks all HTTP requests with 403
+  'Lulu Hypermarket',
+  'Kibsons',
+
+  // GraphQL 403 / search 404 — locked down
+  'West Zone',
+
+  // Not real Magento — GraphQL returns HTML, no product data
+  'VIVA Supermarket',
+
+  // Magento markers but GraphQL 404, search 404 — locked down
+  'Al Madina',
+
+  // SPA shell — search returns 20KB with 0 AED prices, needs JS rendering
+  'Spinneys',
 ]);
 
 /** Maps store names to their scraper constructors */
 const SCRAPER_MAP: Record<string, (storeId: number) => BaseScraper> = {
+  // ─── Confirmed working ─────────────────────
+  'Union Coop': (id) => new UnionCoopScraper(id),        // GraphQL ✅
+  'Grandiose': (id) => new GrandioseScraper(id),          // GraphQL ✅
+  'Noon Grocery': (id) => new NoonScraper(id),            // Catalog API + LD+JSON ✅
+  'Barakat': (id) => new BarakatScraper(id),              // Next.js + AED prices ✅
+  'Carrefour UAE': (id) => new CarrefourScraper(id),      // Cookie jar + escaped JSON ✅
+
+  // ─── Needs testing ─────────────────────────
+  'Choithrams': (id) => new ChoithramsScraper(id),        // Custom platform, probing
+
+  // ─── Disabled (see DISABLED_STORES above) ──
   'Lulu Hypermarket': (id) => new LuluScraper(id),
-  'Carrefour UAE': (id) => new CarrefourScraper(id),
-  'Union Coop': (id) => new UnionCoopScraper(id),
+  'Spinneys': (id) => new SpinneysScraper(id),
+  'Kibsons': (id) => new SpinneysScraper(id),             // Placeholder — Cloudflare
+  'West Zone': (id) => new GrandioseScraper(id),          // Placeholder — blocked
+  'VIVA Supermarket': (id) => new GrandioseScraper(id),   // Placeholder — not Magento
+  'Al Madina': (id) => new GrandioseScraper(id),          // Placeholder — locked down
 };
 
 /** Creates the appropriate scraper for a given store */
@@ -23,7 +59,7 @@ export function createScraper(
 ): BaseScraper | null {
   const factory = SCRAPER_MAP[storeName];
   if (!factory) {
-    logger.error({ storeName }, 'No scraper registered for store');
+    logger.warn({ storeName }, 'No scraper registered for store — skipping');
     return null;
   }
   return factory(storeId);

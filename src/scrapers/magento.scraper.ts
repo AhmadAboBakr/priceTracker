@@ -2,22 +2,17 @@ import { BaseScraper, ScrapeResult, StoreConfig, CheerioDoc } from './base-scrap
 import { logger } from '../utils/logger';
 
 /**
- * Scraper for Union Coop UAE (Magento 2 site).
- * Uses direct HTTP requests with cheerio — no browser needed.
+ * Reusable scraper for Magento 2 based UAE stores.
+ * Many UAE grocery sites (Union Coop, Choithrams, Grandiose, West Zone,
+ * VIVA, Al Madina) run on Magento 2 which exposes a standard GraphQL API.
  *
- * Magento 2 sites are server-rendered, so the product data is
- * directly in the HTML. We also try the Magento REST API and
- * GraphQL endpoint as faster alternatives.
+ * Strategy order:
+ *   1. Magento GraphQL (fastest, structured)
+ *   2. Magento REST API
+ *   3. HTML scrape with cheerio
  */
-export class UnionCoopScraper extends BaseScraper {
-  constructor(storeId: number) {
-    const config: StoreConfig = {
-      storeId,
-      storeName: 'Union Coop',
-      baseUrl: 'https://www.unioncoop.ae',
-      searchUrl: 'https://www.unioncoop.ae/catalogsearch/result/?q=',
-      requestDelay: 2000,
-    };
+export class MagentoScraper extends BaseScraper {
+  constructor(config: StoreConfig) {
     super(config);
   }
 
@@ -25,15 +20,12 @@ export class UnionCoopScraper extends BaseScraper {
     itemId: number,
     searchQuery: string
   ): Promise<ScrapeResult> {
-    // Strategy 1: Try Magento GraphQL API (fastest, cleanest data)
     const gqlResult = await this.tryGraphQl(searchQuery, itemId);
     if (gqlResult) return gqlResult;
 
-    // Strategy 2: Try Magento REST API
     const restResult = await this.tryRestApi(searchQuery, itemId);
     if (restResult) return restResult;
 
-    // Strategy 3: Fetch the search page HTML and parse it
     const htmlResult = await this.tryHtmlScrape(searchQuery, itemId);
     if (htmlResult) return htmlResult;
 
@@ -49,7 +41,7 @@ export class UnionCoopScraper extends BaseScraper {
     };
   }
 
-  /** Tries Magento 2 GraphQL product search */
+  /// Tries Magento 2 GraphQL product search.
   private async tryGraphQl(
     searchQuery: string,
     itemId: number
@@ -73,21 +65,27 @@ export class UnionCoopScraper extends BaseScraper {
     }`;
 
     try {
-      const response = await this.http.post(gqlUrl, { query }, {
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'Store': 'default',
-        },
-        timeout: 10000,
-      });
+      const response = await this.http.post(
+        gqlUrl,
+        { query },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'Store': 'default',
+          },
+          timeout: 10000,
+        }
+      );
 
-      const data = response.data;
-      const items = data?.data?.products?.items;
+      const items = response.data?.data?.products?.items;
       if (!Array.isArray(items) || items.length === 0) return null;
 
       const products = items
-        .filter((item: any) => item.name && item.price_range?.minimum_price?.final_price?.value)
+        .filter(
+          (item: any) =>
+            item.name && item.price_range?.minimum_price?.final_price?.value
+        )
         .map((item: any) => ({
           name: item.name as string,
           price: item.price_range.minimum_price.final_price.value as number,
@@ -97,36 +95,50 @@ export class UnionCoopScraper extends BaseScraper {
         const best = this.findBestMatch(products, searchQuery);
         if (best && this.validatePrice(best.price, searchQuery)) {
           logger.info(
-            { store: this.config.storeName, itemId, price: best.price, productName: best.name, method: 'graphql' },
+            {
+              store: this.config.storeName,
+              itemId,
+              price: best.price,
+              productName: best.name,
+              method: 'graphql',
+            },
             'Price found via GraphQL'
           );
           return {
-            itemId, storeId: this.config.storeId, searchQuery,
-            productName: best.name, price: best.price, success: true,
+            itemId,
+            storeId: this.config.storeId,
+            searchQuery,
+            productName: best.name,
+            price: best.price,
+            success: true,
           };
         }
       }
     } catch (e) {
-      logger.debug({ store: this.config.storeName, error: (e as Error).message }, 'GraphQL failed');
+      logger.debug(
+        { store: this.config.storeName, error: (e as Error).message },
+        'GraphQL failed'
+      );
     }
 
     return null;
   }
 
-  /** Tries Magento 2 REST API product search */
+  /// Tries Magento 2 REST API product search.
   private async tryRestApi(
     searchQuery: string,
     itemId: number
   ): Promise<ScrapeResult | null> {
+    const encoded = encodeURIComponent(searchQuery);
     const restUrls = [
-      `${this.config.baseUrl}/rest/V1/products?searchCriteria[filter_groups][0][filters][0][field]=name&searchCriteria[filter_groups][0][filters][0][value]=%25${encodeURIComponent(searchQuery)}%25&searchCriteria[filter_groups][0][filters][0][condition_type]=like&searchCriteria[pageSize]=5`,
-      `${this.config.baseUrl}/rest/default/V1/products?searchCriteria[filter_groups][0][filters][0][field]=name&searchCriteria[filter_groups][0][filters][0][value]=%25${encodeURIComponent(searchQuery)}%25&searchCriteria[filter_groups][0][filters][0][condition_type]=like&searchCriteria[pageSize]=5`,
+      `${this.config.baseUrl}/rest/V1/products?searchCriteria[filter_groups][0][filters][0][field]=name&searchCriteria[filter_groups][0][filters][0][value]=%25${encoded}%25&searchCriteria[filter_groups][0][filters][0][condition_type]=like&searchCriteria[pageSize]=5`,
+      `${this.config.baseUrl}/rest/default/V1/products?searchCriteria[filter_groups][0][filters][0][field]=name&searchCriteria[filter_groups][0][filters][0][value]=%25${encoded}%25&searchCriteria[filter_groups][0][filters][0][condition_type]=like&searchCriteria[pageSize]=5`,
     ];
 
     for (const restUrl of restUrls) {
       try {
         const data = await this.fetchJson(restUrl, {
-          'Referer': this.config.baseUrl,
+          Referer: this.config.baseUrl,
         });
 
         const items = data?.items;
@@ -137,7 +149,6 @@ export class UnionCoopScraper extends BaseScraper {
           const name = item.name;
           let price = item.price;
 
-          // Check custom_attributes for special_price
           if (item.custom_attributes && Array.isArray(item.custom_attributes)) {
             const specialPrice = item.custom_attributes.find(
               (a: any) => a.attribute_code === 'special_price'
@@ -158,24 +169,37 @@ export class UnionCoopScraper extends BaseScraper {
           const best = this.findBestMatch(products, searchQuery);
           if (best && this.validatePrice(best.price, searchQuery)) {
             logger.info(
-              { store: this.config.storeName, itemId, price: best.price, productName: best.name, method: 'rest-api' },
+              {
+                store: this.config.storeName,
+                itemId,
+                price: best.price,
+                productName: best.name,
+                method: 'rest-api',
+              },
               'Price found via REST API'
             );
             return {
-              itemId, storeId: this.config.storeId, searchQuery,
-              productName: best.name, price: best.price, success: true,
+              itemId,
+              storeId: this.config.storeId,
+              searchQuery,
+              productName: best.name,
+              price: best.price,
+              success: true,
             };
           }
         }
       } catch (e) {
-        logger.debug({ store: this.config.storeName, error: (e as Error).message }, 'REST API failed');
+        logger.debug(
+          { store: this.config.storeName, error: (e as Error).message },
+          'REST API failed'
+        );
       }
     }
 
     return null;
   }
 
-  /** Falls back to fetching and parsing the search results HTML */
+  /// Falls back to fetching and parsing the search results HTML.
   private async tryHtmlScrape(
     searchQuery: string,
     itemId: number
@@ -184,29 +208,23 @@ export class UnionCoopScraper extends BaseScraper {
     logger.debug({ store: this.config.storeName, url }, 'Fetching search HTML');
 
     try {
-      const $ = await this.fetchHtml(url, {
-        'Referer': this.config.baseUrl,
-      });
+      const $ = await this.fetchHtml(url, { Referer: this.config.baseUrl });
 
-      // Check for LD+JSON structured data first
+      // LD+JSON structured data
       const ldResult = this.extractFromLdJson($, itemId, searchQuery);
       if (ldResult) return ldResult;
 
-      // Parse Magento 2 product listing HTML
+      // Magento 2 product listing
       const products: { name: string; price: number }[] = [];
 
-      // Magento 2 standard: product items in .product-items list
       $('.product-item').each((_i, el) => {
         const $item = $(el);
-
-        // Name
         const name =
           $item.find('a.product-item-link').text().trim() ||
           $item.find('.product-item-name a').text().trim() ||
           $item.find('.product-name a').text().trim();
 
-        // Price — prefer final/special price
-        let priceText =
+        const priceText =
           $item.find('[data-price-type="finalPrice"] .price').text().trim() ||
           $item.find('.special-price .price').text().trim() ||
           $item.find('.price-box .price').text().trim() ||
@@ -220,29 +238,7 @@ export class UnionCoopScraper extends BaseScraper {
         }
       });
 
-      // Fallback: look for any price-box elements
-      if (products.length === 0) {
-        const names: string[] = [];
-        const prices: number[] = [];
-
-        $('a.product-item-link, .product-item-name a, .product-name a').each((_i, el) => {
-          const text = $(el).text().trim();
-          if (text.length > 2) names.push(text);
-        });
-
-        $('.price-box .price, span.price, .product-price .price').each((_i, el) => {
-          const text = $(el).text().trim();
-          const num = parseFloat(text.replace(/[^\d.]/g, ''));
-          if (!isNaN(num) && num > 0.5 && num < 2000) prices.push(num);
-        });
-
-        const count = Math.min(names.length, prices.length);
-        for (let i = 0; i < count; i++) {
-          products.push({ name: names[i], price: prices[i] });
-        }
-      }
-
-      // Last resort: regex AED prices
+      // AED regex fallback
       if (products.length === 0) {
         const bodyText = $('body').html() || '';
         const aedPattern = /(?:AED|aed|د\.إ)\s*([\d,.]+)/g;
@@ -260,23 +256,36 @@ export class UnionCoopScraper extends BaseScraper {
         const best = this.findBestMatch(products, searchQuery);
         if (best && this.validatePrice(best.price, searchQuery)) {
           logger.info(
-            { store: this.config.storeName, itemId, price: best.price, productName: best.name, method: 'html' },
+            {
+              store: this.config.storeName,
+              itemId,
+              price: best.price,
+              productName: best.name,
+              method: 'html',
+            },
             'Price found via HTML'
           );
           return {
-            itemId, storeId: this.config.storeId, searchQuery,
-            productName: best.name, price: best.price, success: true,
+            itemId,
+            storeId: this.config.storeId,
+            searchQuery,
+            productName: best.name,
+            price: best.price,
+            success: true,
           };
         }
       }
     } catch (e) {
-      logger.debug({ store: this.config.storeName, error: (e as Error).message }, 'HTML scrape failed');
+      logger.debug(
+        { store: this.config.storeName, error: (e as Error).message },
+        'HTML scrape failed'
+      );
     }
 
     return null;
   }
 
-  /** Extracts from Schema.org LD+JSON */
+  /// Extracts products from Schema.org LD+JSON blocks.
   private extractFromLdJson(
     $: CheerioDoc,
     itemId: number,
@@ -291,16 +300,24 @@ export class UnionCoopScraper extends BaseScraper {
         const products: { name: string; price: number }[] = [];
 
         if (data['@type'] === 'Product' && data.name && data.offers) {
-          const p = parseFloat(String(data.offers.price ?? data.offers.lowPrice));
+          const p = parseFloat(
+            String(data.offers.price ?? data.offers.lowPrice)
+          );
           if (!isNaN(p) && p > 0) products.push({ name: data.name, price: p });
         }
 
-        if (data['@type'] === 'ItemList' && Array.isArray(data.itemListElement)) {
+        if (
+          data['@type'] === 'ItemList' &&
+          Array.isArray(data.itemListElement)
+        ) {
           for (const item of data.itemListElement) {
             const prod = item.item || item;
             if (prod.name && prod.offers) {
-              const p = parseFloat(String(prod.offers.price ?? prod.offers.lowPrice));
-              if (!isNaN(p) && p > 0) products.push({ name: prod.name, price: p });
+              const p = parseFloat(
+                String(prod.offers.price ?? prod.offers.lowPrice)
+              );
+              if (!isNaN(p) && p > 0)
+                products.push({ name: prod.name, price: p });
             }
           }
         }
@@ -309,17 +326,95 @@ export class UnionCoopScraper extends BaseScraper {
           const best = this.findBestMatch(products, searchQuery);
           if (best && this.validatePrice(best.price, searchQuery)) {
             logger.info(
-              { store: this.config.storeName, itemId, price: best.price, method: 'ld+json' },
+              {
+                store: this.config.storeName,
+                itemId,
+                price: best.price,
+                method: 'ld+json',
+              },
               'Price found'
             );
             return {
-              itemId, storeId: this.config.storeId, searchQuery,
-              productName: best.name, price: best.price, success: true,
+              itemId,
+              storeId: this.config.storeId,
+              searchQuery,
+              productName: best.name,
+              price: best.price,
+              success: true,
             };
           }
         }
-      } catch {}
+      } catch {
+        /* skip malformed LD+JSON */
+      }
     }
     return null;
+  }
+}
+
+// ─── Concrete store classes using the shared Magento scraper ────────
+
+/// Scraper for Choithrams UAE (Magento 2).
+export class ChoithramsScraper extends MagentoScraper {
+  constructor(storeId: number) {
+    super({
+      storeId,
+      storeName: 'Choithrams',
+      baseUrl: 'https://www.choithrams.com',
+      searchUrl: 'https://www.choithrams.com/catalogsearch/result/?q=',
+      requestDelay: 2000,
+    });
+  }
+}
+
+/// Scraper for Grandiose UAE (Magento 2).
+export class GrandioseScraper extends MagentoScraper {
+  constructor(storeId: number) {
+    super({
+      storeId,
+      storeName: 'Grandiose',
+      baseUrl: 'https://www.grandiose.ae',
+      searchUrl: 'https://www.grandiose.ae/catalogsearch/result/?q=',
+      requestDelay: 2000,
+    });
+  }
+}
+
+/// Scraper for West Zone UAE (Magento 2).
+export class WestZoneScraper extends MagentoScraper {
+  constructor(storeId: number) {
+    super({
+      storeId,
+      storeName: 'West Zone',
+      baseUrl: 'https://www.westzone.com',
+      searchUrl: 'https://www.westzone.com/catalogsearch/result/?q=',
+      requestDelay: 2000,
+    });
+  }
+}
+
+/// Scraper for VIVA Supermarket UAE (Magento 2).
+export class VivaScraper extends MagentoScraper {
+  constructor(storeId: number) {
+    super({
+      storeId,
+      storeName: 'VIVA Supermarket',
+      baseUrl: 'https://www.vivasupermarket.com',
+      searchUrl: 'https://www.vivasupermarket.com/catalogsearch/result/?q=',
+      requestDelay: 2000,
+    });
+  }
+}
+
+/// Scraper for Al Madina UAE (Magento 2).
+export class AlMadinaScraper extends MagentoScraper {
+  constructor(storeId: number) {
+    super({
+      storeId,
+      storeName: 'Al Madina',
+      baseUrl: 'https://www.almadinauae.com',
+      searchUrl: 'https://www.almadinauae.com/catalogsearch/result/?q=',
+      requestDelay: 2000,
+    });
   }
 }
