@@ -619,11 +619,17 @@ async function handleViewAnomalies() {
             ? 'background:rgba(220,38,38,0.1);border:1px solid rgba(220,38,38,0.3);border-radius:6px;padding:4px 8px'
             : 'padding:4px 8px';
 
-          return `<div style="display:flex;justify-content:space-between;align-items:center;font-size:0.85rem;${style}">
+          const anomalyEntry = isAnomaly ? itemAnomalies.find((a) => a.storeId === store.id) : null;
+          const deleteBtn = anomalyEntry
+            ? `<button onclick="deleteAnomaly(${anomalyEntry.id}, this)" title="Remove this price" style="background:none;border:none;cursor:pointer;color:var(--negative);font-size:1rem;padding:0 0 0 6px;line-height:1;opacity:0.7" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.7">&times;</button>`
+            : '';
+
+          return `<div style="display:flex;justify-content:space-between;align-items:center;font-size:0.85rem;${style}" ${anomalyEntry ? `data-anomaly-id="${anomalyEntry.id}"` : ''}>
             <span><span class="store-dot ${css}"></span>${STORE_NAMES[store.id]}</span>
-            <span>
+            <span style="display:flex;align-items:center">
               <span style="font-weight:600;${isAnomaly ? 'color:var(--negative)' : ''}">AED ${priceData.price.toFixed(2)}</span>
               ${isAnomaly ? `<span style="font-size:0.75rem;color:var(--negative);margin-left:6px">(${deviationPct}% off)</span>` : ''}
+              ${deleteBtn}
             </span>
           </div>`;
         }).filter(Boolean).join('');
@@ -652,4 +658,51 @@ async function handleViewAnomalies() {
 
 function closeAnomalyModal() {
   document.getElementById('anomalyOverlay').style.display = 'none';
+}
+
+async function deleteAnomaly(id, btnEl) {
+  if (!confirm('Remove this anomalous price entry?')) return;
+
+  // Disable button while deleting
+  btnEl.disabled = true;
+  btnEl.style.opacity = 0.3;
+
+  try {
+    const res = await fetch('/api/anomalies', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: [id] }),
+    });
+    const result = await res.json();
+
+    if (result.removed > 0) {
+      // Remove the row from the DOM
+      const row = btnEl.closest('[data-anomaly-id]');
+      if (row) {
+        row.style.transition = 'opacity 0.3s';
+        row.style.opacity = '0';
+        setTimeout(() => {
+          row.remove();
+
+          // Check if the parent item card has any anomaly rows left
+          // If not, update the card styling
+          const cards = document.querySelectorAll('#anomalyList [data-anomaly-id]');
+          const countEl = document.querySelector('#anomalyList p');
+          if (cards.length === 0 && countEl) {
+            countEl.textContent = 'All anomalies have been removed.';
+          }
+        }, 300);
+      }
+
+      // Refresh dashboard data in the background
+      await Promise.all([loadItems(), loadBasketChart()]);
+    } else {
+      alert('Price entry not found — it may have already been removed.');
+    }
+  } catch (err) {
+    console.error('Failed to delete anomaly:', err);
+    alert('Failed to remove anomaly. Check console for details.');
+    btnEl.disabled = false;
+    btnEl.style.opacity = 0.7;
+  }
 }

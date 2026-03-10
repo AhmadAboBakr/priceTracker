@@ -339,9 +339,23 @@ export function createRouter(db: Database): Router {
     }
   });
 
-  // DELETE /api/anomalies — remove detected anomalies
+  // DELETE /api/anomalies — remove detected anomalies (all or specific IDs)
   router.delete('/anomalies', (req: Request, res: Response) => {
     try {
+      // If specific IDs are provided in the body, delete only those
+      const { ids } = req.body || {};
+      if (Array.isArray(ids) && ids.length > 0) {
+        const numericIds = ids.map(Number).filter((n: number) => !isNaN(n) && n > 0);
+        if (numericIds.length === 0) {
+          res.status(400).json({ error: 'No valid IDs provided' });
+          return;
+        }
+        const removed = queries.deleteAnomalies(numericIds);
+        res.json({ removed });
+        return;
+      }
+
+      // Otherwise detect and remove all anomalies at the given deviation
       const deviation = parseFloat((req.query.deviation as string) || '15');
       const anomalies = queries.detectAnomalies(deviation);
 
@@ -350,8 +364,8 @@ export function createRouter(db: Database): Router {
         return;
       }
 
-      const ids = anomalies.map((a) => a.id);
-      const removed = queries.deleteAnomalies(ids);
+      const allIds = anomalies.map((a) => a.id);
+      const removed = queries.deleteAnomalies(allIds);
 
       res.json({
         removed,
