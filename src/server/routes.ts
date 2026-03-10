@@ -323,6 +323,51 @@ export function createRouter(db: Database): Router {
     }
   });
 
+  // GET /api/anomalies?deviation=15 — detect price anomalies
+  router.get('/anomalies', (req: Request, res: Response) => {
+    try {
+      const deviation = parseFloat((req.query.deviation as string) || '15');
+      const anomalies = queries.detectAnomalies(deviation);
+      res.json({
+        deviation,
+        count: anomalies.length,
+        anomalies,
+      });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Failed to detect anomalies' });
+    }
+  });
+
+  // DELETE /api/anomalies — remove detected anomalies
+  router.delete('/anomalies', (req: Request, res: Response) => {
+    try {
+      const deviation = parseFloat((req.query.deviation as string) || '15');
+      const anomalies = queries.detectAnomalies(deviation);
+
+      if (anomalies.length === 0) {
+        res.json({ removed: 0, message: 'No anomalies found' });
+        return;
+      }
+
+      const ids = anomalies.map((a) => a.id);
+      const removed = queries.deleteAnomalies(ids);
+
+      res.json({
+        removed,
+        details: anomalies.map((a) => ({
+          item: a.itemName,
+          store: a.storeName,
+          price: a.price,
+          trimmedMean: a.trimmedMean,
+        })),
+      });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Failed to remove anomalies' });
+    }
+  });
+
   // GET /api/scrape-logs?limit=20 — recent scraper run logs
   router.get('/scrape-logs', (req: Request, res: Response) => {
     try {

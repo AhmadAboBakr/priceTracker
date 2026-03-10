@@ -120,6 +120,78 @@ export class PriceQueries {
     saveDatabase(this.db);
   }
 
+  /**
+   * Detects anomalous prices for each item.
+   * An anomaly is a price that deviates more than the given percentage
+   * from the trimmed mean (average after removing the highest and lowest values).
+   * Returns the IDs of price_history rows flagged as anomalies.
+   */
+  detectAnomalies(deviationPct: number = 15): { id: number; itemId: number; storeId: number; price: number; storeName: string; itemName: string; trimmedMean: number }[] {
+    // Get latest prices per item+store
+    const latestPrices = queryAll(this.db, `
+      SELECT ph.id, ph.item_id, ph.store_id, ph.price, ph.scraped_at,
+             i.name as item_name, s.name as store_name
+      FROM price_history ph
+      INNER JOIN (
+        SELECT item_id, store_id, MAX(scraped_at) as max_date
+        FROM price_history
+        GROUP BY item_id, store_id
+      ) latest ON ph.item_id = latest.item_id
+               AND ph.store_id = latest.store_id
+               AND ph.scraped_at = latest.max_date
+      JOIN items i ON i.id = ph.item_id
+      JOIN stores s ON s.id = ph.store_id
+      WHERE ph.price > 0
+    `);
+
+    // Group by item_id
+    const byItem = new Map<number, typeof latestPrices>();
+    for (const row of latestPrices) {
+      if (!byItem.has(row.item_id)) byItem.set(row.item_id, []);
+      byItem.get(row.item_id)!.push(row);
+    }
+
+    const anomalies: { id: number; itemId: number; storeId: number; price: number; storeName: string; itemName: string; trimmedMean: number }[] = [];
+
+    for (const [_itemId, rows] of byItem) {
+      if (rows.length < 3) continue; // Need at least 3 stores to compute trimmed mean
+
+      // Sort prices to compute trimmed mean (remove highest and lowest)
+      const sorted = [...rows].sort((a, b) => a.price - b.price);
+      const trimmed = sorted.slice(1, -1); // Remove min and max
+      const trimmedMean = trimmed.reduce((sum, r) => sum + r.price, 0) / trimmed.length;
+
+      if (trimmedMean <= 0) continue;
+
+      const threshold = deviationPct / 100;
+      for (const row of rows) {
+        const deviation = Math.abs(row.price - trimmedMean) / trimmedMean;
+        if (deviation > threshold) {
+          anomalies.push({
+            id: row.id,
+            itemId: row.item_id,
+            storeId: row.store_id,
+            price: row.price,
+            storeName: row.store_name,
+            itemName: row.item_name,
+            trimmedMean: parseFloat(trimmedMean.toFixed(2)),
+          });
+        }
+      }
+    }
+
+    return anomalies;
+  }
+
+  /** Deletes specific price_history rows by ID */
+  deleteAnomalies(ids: number[]): number {
+    if (ids.length === 0) return 0;
+    const placeholders = ids.map(() => '?').join(',');
+    this.db.run(`DELETE FROM price_history WHERE id IN (${placeholders})`, ids);
+    saveDatabase(this.db);
+    return ids.length;
+  }
+
   /** Gets recent scrape log entries */
   getRecentScrapeLogs(limit: number = 20) {
     return queryAll(this.db, `

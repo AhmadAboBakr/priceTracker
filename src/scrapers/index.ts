@@ -15,7 +15,7 @@ import { logger } from '../utils/logger';
  */
 const DISABLED_STORES = new Set<string>([
   // Cloudflare WAF blocks all HTTP requests with 403
-  'Lulu Hypermarket',
+  // 'Lulu Hypermarket',  // RE-ENABLED — now uses Playwright stealth
   'Kibsons',
 
   // GraphQL 403 / search 404 — locked down
@@ -43,8 +43,8 @@ const SCRAPER_MAP: Record<string, (storeId: number) => BaseScraper> = {
   // ─── Needs testing ─────────────────────────
   'Choithrams': (id) => new ChoithramsScraper(id),        // Custom platform, probing
 
-  // ─── Disabled (see DISABLED_STORES above) ──
-  'Lulu Hypermarket': (id) => new LuluScraper(id),
+  // ─── Playwright stealth (Cloudflare bypass) ──
+  'Lulu Hypermarket': (id) => new LuluScraper(id),       // Playwright + stealth ✅
   'Spinneys': (id) => new SpinneysScraper(id),
   'Kibsons': (id) => new SpinneysScraper(id),             // Placeholder — Cloudflare
   'West Zone': (id) => new GrandioseScraper(id),          // Placeholder — blocked

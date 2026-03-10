@@ -512,4 +512,58 @@ function setupEventListeners() {
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') closeModal();
   });
+
+  // Anomaly detection button
+  document.getElementById('anomalyBtn').addEventListener('click', handleAnomalyRemoval);
+}
+
+// ── Anomaly Detection ─────────────────────────────────
+async function handleAnomalyRemoval() {
+  const btn = document.getElementById('anomalyBtn');
+  btn.disabled = true;
+  btn.textContent = 'Scanning...';
+
+  try {
+    // First, preview anomalies
+    const previewRes = await fetch('/api/anomalies?deviation=15');
+    const preview = await previewRes.json();
+
+    if (preview.count === 0) {
+      alert('No anomalies detected. All prices are within 15% of the trimmed average.');
+      btn.textContent = 'Remove Anomalies';
+      btn.disabled = false;
+      return;
+    }
+
+    // Build a summary for the confirmation dialog
+    const lines = preview.anomalies.map(
+      (a) => `${a.itemName} @ ${a.storeName}: AED ${a.price.toFixed(2)} (avg: AED ${a.trimmedMean.toFixed(2)})`
+    );
+    const msg = `Found ${preview.count} anomalous price(s) (>15% from trimmed average):\n\n` +
+      lines.slice(0, 20).join('\n') +
+      (lines.length > 20 ? `\n... and ${lines.length - 20} more` : '') +
+      '\n\nRemove these prices?';
+
+    if (!confirm(msg)) {
+      btn.textContent = 'Remove Anomalies';
+      btn.disabled = false;
+      return;
+    }
+
+    // Delete anomalies
+    btn.textContent = 'Removing...';
+    const delRes = await fetch('/api/anomalies?deviation=15', { method: 'DELETE' });
+    const delResult = await delRes.json();
+
+    alert(`Removed ${delResult.removed} anomalous price(s).`);
+
+    // Refresh data
+    await Promise.all([loadItems(), loadBasketChart()]);
+  } catch (err) {
+    console.error('Anomaly removal failed:', err);
+    alert('Failed to process anomalies. Check console for details.');
+  } finally {
+    btn.textContent = 'Remove Anomalies';
+    btn.disabled = false;
+  }
 }
