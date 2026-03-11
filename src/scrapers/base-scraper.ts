@@ -156,9 +156,10 @@ export abstract class BaseScraper {
     }
   }
 
-  /** Scrapes all items for this store sequentially with pacing */
+  /** Scrapes all items for this store sequentially with pacing. If onResult is provided, each result is emitted immediately and not accumulated. */
   async scrapeAll(
-    items: { itemId: number; searchQuery: string }[]
+    items: { itemId: number; searchQuery: string }[],
+    onResult?: (result: ScrapeResult) => void
   ): Promise<ScrapeResult[]> {
     await this.initialize();
     const results: ScrapeResult[] = [];
@@ -166,7 +167,11 @@ export abstract class BaseScraper {
     try {
       for (const item of items) {
         const result = await this.scrapeItem(item.itemId, item.searchQuery);
-        results.push(result);
+        if (onResult) {
+          onResult(result);
+        } else {
+          results.push(result);
+        }
         await this.delay(this.config.requestDelay);
       }
     } finally {

@@ -70,29 +70,38 @@ async function runScrape(): Promise<void> {
     );
   }
 
-  // Run the scrape
-  const summaries = await scrapeAllStores(stores, itemsByStore);
-
-  // Insert successful results into price_history
+  // Run the scrape — insert each result immediately, skip same-day duplicates
   const now = new Date().toISOString();
   let totalInserted = 0;
+  let totalSkipped = 0;
 
-  for (const summary of summaries) {
-    const successfulPrices = summary.results
-      .filter((r) => r.success && r.price !== null)
-      .map((r) => ({
-        itemId: r.itemId,
-        storeId: r.storeId,
-        price: r.price!,
-        scrapedAt: now,
-      }));
+  const summaries = await scrapeAllStores(stores, itemsByStore, (result) => {
+    if (!result.success || result.price === null) return;
 
-    if (successfulPrices.length > 0) {
-      const inserted = queries.insertPrices(successfulPrices);
-      totalInserted += inserted;
+    const inserted = queries.insertPriceIfNew(
+      result.itemId,
+      result.storeId,
+      result.price,
+      now
+    );
+
+    if (inserted) {
+      totalInserted++;
+      logger.debug(
+        { itemId: result.itemId, storeId: result.storeId, price: result.price },
+        'Price inserted'
+      );
+    } else {
+      totalSkipped++;
+      logger.debug(
+        { itemId: result.itemId, storeId: result.storeId },
+        'Skipped — already scraped today'
+      );
     }
+  });
 
-    // Log scrape run for this store
+  // Log scrape runs per store
+  for (const summary of summaries) {
     const status =
       summary.failedCount === 0
         ? 'success'
@@ -123,6 +132,7 @@ async function runScrape(): Promise<void> {
   logger.info(
     {
       totalInserted,
+      totalSkipped,
       totalSuccess,
       totalFailed,
       totalDurationMs: totalDuration,
@@ -132,7 +142,7 @@ async function runScrape(): Promise<void> {
         failed: s.failedCount,
       })),
     },
-    'Daily scrape job completed'
+    'Scrape job completed'
   );
 
   process.exit(totalFailed > 0 && totalSuccess === 0 ? 1 : 0);

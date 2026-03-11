@@ -55,6 +55,27 @@ export class PriceQueries {
     return count;
   }
 
+  /** Inserts a single price only if no entry exists for the same item+store on the same date. Returns true if inserted. */
+  insertPriceIfNew(itemId: number, storeId: number, price: number, scrapedAt: string): boolean {
+    const dateOnly = scrapedAt.slice(0, 10);
+    const existing = queryAll(
+      this.db,
+      `SELECT id FROM price_history
+       WHERE item_id = ? AND store_id = ? AND scraped_at LIKE ?
+       LIMIT 1`,
+      [itemId, storeId, `${dateOnly}%`]
+    );
+    if (existing.length > 0) return false;
+
+    this.db.run(
+      `INSERT INTO price_history (item_id, store_id, price, currency, scraped_at)
+       VALUES (?, ?, ?, 'AED', ?)`,
+      [itemId, storeId, price, scrapedAt]
+    );
+    saveDatabase(this.db);
+    return true;
+  }
+
   /** Gets the most recent price for every item/store pair */
   getLatestPrices() {
     return queryAll(this.db, `

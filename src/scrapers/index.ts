@@ -76,10 +76,11 @@ export interface StoreScrapeSummary {
   durationMs: number;
 }
 
-/** Runs scrapers for all stores sequentially */
+/** Runs scrapers for all stores sequentially. When onResult is provided, each price is emitted immediately (not accumulated in memory). */
 export async function scrapeAllStores(
   stores: { id: number; name: string }[],
-  itemsByStore: Map<number, { itemId: number; searchQuery: string }[]>
+  itemsByStore: Map<number, { itemId: number; searchQuery: string }[]>,
+  onResult?: (result: ScrapeResult) => void
 ): Promise<StoreScrapeSummary[]> {
   const summaries: StoreScrapeSummary[] = [];
 
@@ -105,6 +106,8 @@ export async function scrapeAllStores(
 
     const items = itemsByStore.get(store.id) || [];
     const start = Date.now();
+    let successCount = 0;
+    let failedCount = 0;
 
     logger.info(
       { store: store.name, itemCount: items.length },
@@ -112,19 +115,39 @@ export async function scrapeAllStores(
     );
 
     try {
-      const results = await scraper.scrapeAll(items);
-      const successCount = results.filter((r) => r.success).length;
-      const failedCount = results.filter((r) => !r.success).length;
+      if (onResult) {
+        // Stream mode: emit each result immediately, don't accumulate
+        await scraper.scrapeAll(items, (result) => {
+          if (result.success) successCount++;
+          else failedCount++;
+          onResult(result);
+        });
 
-      summaries.push({
-        storeId: store.id,
-        storeName: store.name,
-        totalItems: items.length,
-        successCount,
-        failedCount,
-        results,
-        durationMs: Date.now() - start,
-      });
+        summaries.push({
+          storeId: store.id,
+          storeName: store.name,
+          totalItems: items.length,
+          successCount,
+          failedCount,
+          results: [],  // not accumulated — already emitted
+          durationMs: Date.now() - start,
+        });
+      } else {
+        // Batch mode: collect all results in memory (legacy)
+        const results = await scraper.scrapeAll(items);
+        successCount = results.filter((r) => r.success).length;
+        failedCount = results.filter((r) => !r.success).length;
+
+        summaries.push({
+          storeId: store.id,
+          storeName: store.name,
+          totalItems: items.length,
+          successCount,
+          failedCount,
+          results,
+          durationMs: Date.now() - start,
+        });
+      }
 
       logger.info(
         { store: store.name, successCount, failedCount, durationMs: Date.now() - start },
