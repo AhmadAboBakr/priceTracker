@@ -382,6 +382,40 @@ export function createRouter(db: Database): Router {
     }
   });
 
+  // GET /api/spikes?aed=5&pct=50 — detect suspicious price jumps/drops
+  router.get('/spikes', (req: Request, res: Response) => {
+    try {
+      const maxAed = parseFloat((req.query.aed as string) || '5');
+      const maxPct = parseFloat((req.query.pct as string) || '50');
+      const spikes = queries.detectPriceSpikes(maxAed, maxPct);
+      res.json({ maxAed, maxPct, count: spikes.length, spikes });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Failed to detect price spikes' });
+    }
+  });
+
+  // DELETE /api/spikes — remove specific spike entries by ID
+  router.delete('/spikes', (req: Request, res: Response) => {
+    try {
+      const { ids } = req.body || {};
+      if (!Array.isArray(ids) || ids.length === 0) {
+        res.status(400).json({ error: 'Body must contain a non-empty "ids" array' });
+        return;
+      }
+      const numericIds = ids.map(Number).filter((n: number) => !isNaN(n) && n > 0);
+      if (numericIds.length === 0) {
+        res.status(400).json({ error: 'No valid IDs provided' });
+        return;
+      }
+      const removed = queries.deleteAnomalies(numericIds);
+      res.json({ removed });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Failed to remove spikes' });
+    }
+  });
+
   // GET /api/scrape-logs?limit=20 — recent scraper run logs
   router.get('/scrape-logs', (req: Request, res: Response) => {
     try {

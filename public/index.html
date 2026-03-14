@@ -17,8 +17,7 @@
       <a href="/add-prices.html" class="add-prices-link">+ Add Prices</a>
       <a href="/manage-items.html" class="add-prices-link" style="background:rgba(255,255,255,0.15)">Manage Items</a>
       <a href="/manage-stores.html" class="add-prices-link" style="background:rgba(255,255,255,0.15)">Manage Stores</a>
-      <button id="viewAnomalyBtn" class="add-prices-link" style="background:rgba(139,92,246,0.7);border:none;cursor:pointer" title="View items with anomalous prices">View Anomalies</button>
-      <button id="anomalyBtn" class="add-prices-link" style="background:rgba(220,38,38,0.7);border:none;cursor:pointer" title="Detect and remove prices that deviate more than 20% from the trimmed average">Remove Anomalies</button>
+      <button id="dataCleanupBtn" class="add-prices-link" style="background:rgba(139,92,246,0.7);border:none;cursor:pointer" title="Detect and clean anomalous prices and suspicious spikes">Data Cleanup</button>
       <select id="daysFilter">
         <option value="7">Last 7 days</option>
         <option value="30" selected>Last 30 days</option>
@@ -67,14 +66,41 @@
         <div id="modalInfo" class="modal-info"></div>
       </div>
     </div>
-    <!-- Anomaly List Modal -->
-    <div class="modal-overlay" id="anomalyOverlay" style="display:none">
-      <div class="modal" style="width:min(95vw,850px)">
+    <!-- Data Cleanup Modal -->
+    <div class="modal-overlay" id="cleanupOverlay" style="display:none">
+      <div class="modal" style="width:min(95vw,900px)">
         <div class="modal-header">
-          <h3>Price Anomalies (>20% from trimmed average)</h3>
-          <button class="modal-close" id="anomalyModalClose">&times;</button>
+          <h3>Data Cleanup</h3>
+          <button class="modal-close" id="cleanupModalClose">&times;</button>
         </div>
-        <div id="anomalyList" style="max-height:60vh;overflow-y:auto"></div>
+        <!-- Tabs -->
+        <div style="display:flex;border-bottom:1px solid var(--border);margin-bottom:12px">
+          <button class="cleanup-tab active" data-tab="anomalies" style="flex:1;padding:10px;border:none;background:none;cursor:pointer;font-weight:600;font-size:0.9rem;color:var(--text-secondary);border-bottom:2px solid transparent" onclick="switchCleanupTab('anomalies')">Price Anomalies</button>
+          <button class="cleanup-tab" data-tab="spikes" style="flex:1;padding:10px;border:none;background:none;cursor:pointer;font-weight:600;font-size:0.9rem;color:var(--text-secondary);border-bottom:2px solid transparent" onclick="switchCleanupTab('spikes')">Price Spikes</button>
+        </div>
+        <!-- Anomalies Tab -->
+        <div id="anomalyTab">
+          <div style="display:flex;align-items:center;gap:16px;padding:0 4px 12px;flex-wrap:wrap">
+            <label style="font-size:0.85rem;color:var(--text-secondary);white-space:nowrap">Deviation threshold:</label>
+            <input type="range" id="anomalySlider" min="5" max="60" value="20" step="1" style="flex:1;min-width:120px;accent-color:var(--negative)">
+            <span id="anomalySliderVal" style="font-weight:600;font-size:0.9rem;min-width:40px">20%</span>
+            <button id="removeAllAnomaliesBtn" onclick="removeAllVisibleAnomalies()" style="background:var(--negative);color:#fff;border:none;border-radius:6px;padding:6px 14px;cursor:pointer;font-size:0.8rem;white-space:nowrap">Remove All</button>
+          </div>
+          <div id="anomalyList" style="max-height:55vh;overflow-y:auto"></div>
+        </div>
+        <!-- Spikes Tab -->
+        <div id="spikesTab" style="display:none">
+          <div style="display:flex;align-items:center;gap:16px;padding:0 4px 12px;flex-wrap:wrap">
+            <label style="font-size:0.85rem;color:var(--text-secondary);white-space:nowrap">Max AED change:</label>
+            <input type="range" id="spikeAedSlider" min="1" max="50" value="5" step="1" style="flex:1;min-width:80px;accent-color:#F59E0B">
+            <span id="spikeAedVal" style="font-weight:600;font-size:0.9rem;min-width:50px">AED 5</span>
+            <label style="font-size:0.85rem;color:var(--text-secondary);white-space:nowrap;margin-left:8px">Max % change:</label>
+            <input type="range" id="spikePctSlider" min="10" max="200" value="50" step="5" style="flex:1;min-width:80px;accent-color:#F59E0B">
+            <span id="spikePctVal" style="font-weight:600;font-size:0.9rem;min-width:40px">50%</span>
+            <button id="removeAllSpikesBtn" onclick="removeAllVisibleSpikes()" style="background:#F59E0B;color:#fff;border:none;border-radius:6px;padding:6px 14px;cursor:pointer;font-size:0.8rem;white-space:nowrap">Remove All</button>
+          </div>
+          <div id="spikesList" style="max-height:55vh;overflow-y:auto"></div>
+        </div>
       </div>
     </div>
   </main>

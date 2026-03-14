@@ -220,6 +220,54 @@ export class PriceQueries {
     return anomalies;
   }
 
+  /** Detects price spikes/drops: day-over-day changes exceeding a given AED or % threshold */
+  detectPriceSpikes(maxChangeAed: number = 5, maxChangePct: number = 50): { id: number; itemId: number; storeId: number; price: number; previousPrice: number; changeAed: number; changePct: number; storeName: string; itemName: string; scrapedAt: string }[] {
+    // Get the two most recent prices per item+store
+    const rows = queryAll(this.db, `
+      WITH ranked AS (
+        SELECT ph.id, ph.item_id, ph.store_id, ph.price, ph.scraped_at,
+               i.name as item_name, s.name as store_name,
+               ROW_NUMBER() OVER (PARTITION BY ph.item_id, ph.store_id ORDER BY ph.scraped_at DESC) as rn
+        FROM price_history ph
+        JOIN items i ON i.id = ph.item_id
+        JOIN stores s ON s.id = ph.store_id
+        WHERE ph.price > 0
+      )
+      SELECT r1.id, r1.item_id, r1.store_id, r1.price, r1.scraped_at,
+             r1.item_name, r1.store_name,
+             r2.price as prev_price, r2.scraped_at as prev_date
+      FROM ranked r1
+      JOIN ranked r2 ON r1.item_id = r2.item_id AND r1.store_id = r2.store_id AND r2.rn = 2
+      WHERE r1.rn = 1
+    `);
+
+    const spikes: { id: number; itemId: number; storeId: number; price: number; previousPrice: number; changeAed: number; changePct: number; storeName: string; itemName: string; scrapedAt: string }[] = [];
+
+    for (const row of rows) {
+      const changeAed = row.price - row.prev_price;
+      const changePct = (changeAed / row.prev_price) * 100;
+      const absAed = Math.abs(changeAed);
+      const absPct = Math.abs(changePct);
+
+      if (absAed >= maxChangeAed || absPct >= maxChangePct) {
+        spikes.push({
+          id: row.id,
+          itemId: row.item_id,
+          storeId: row.store_id,
+          price: row.price,
+          previousPrice: row.prev_price,
+          changeAed: parseFloat(changeAed.toFixed(2)),
+          changePct: parseFloat(changePct.toFixed(1)),
+          storeName: row.store_name,
+          itemName: row.item_name,
+          scrapedAt: row.scraped_at,
+        });
+      }
+    }
+
+    return spikes;
+  }
+
   /** Deletes specific price_history rows by ID */
   deleteAnomalies(ids: number[]): number {
     if (ids.length === 0) return 0;

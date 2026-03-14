@@ -545,126 +545,132 @@ function setupEventListeners() {
   });
 
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') closeModal();
+    if (e.key === 'Escape') {
+      closeModal();
+      closeCleanupModal();
+    }
   });
 
-  // Anomaly buttons
-  document.getElementById('anomalyBtn').addEventListener('click', handleAnomalyRemoval);
-  document.getElementById('viewAnomalyBtn').addEventListener('click', handleViewAnomalies);
-  document.getElementById('anomalyModalClose').addEventListener('click', closeAnomalyModal);
-  document.getElementById('anomalyOverlay').addEventListener('click', (e) => {
-    if (e.target === e.currentTarget) closeAnomalyModal();
+  // Data Cleanup modal
+  document.getElementById('dataCleanupBtn').addEventListener('click', openCleanupModal);
+  document.getElementById('cleanupModalClose').addEventListener('click', closeCleanupModal);
+  document.getElementById('cleanupOverlay').addEventListener('click', (e) => {
+    if (e.target === e.currentTarget) closeCleanupModal();
+  });
+
+  // Sliders — debounced live preview
+  let anomalyTimer = null;
+  document.getElementById('anomalySlider').addEventListener('input', (e) => {
+    document.getElementById('anomalySliderVal').textContent = e.target.value + '%';
+    clearTimeout(anomalyTimer);
+    anomalyTimer = setTimeout(() => loadAnomalyPreview(parseInt(e.target.value)), 300);
+  });
+
+  let spikeTimer = null;
+  document.getElementById('spikeAedSlider').addEventListener('input', (e) => {
+    document.getElementById('spikeAedVal').textContent = 'AED ' + e.target.value;
+    clearTimeout(spikeTimer);
+    spikeTimer = setTimeout(() => loadSpikePreview(), 300);
+  });
+  document.getElementById('spikePctSlider').addEventListener('input', (e) => {
+    document.getElementById('spikePctVal').textContent = e.target.value + '%';
+    clearTimeout(spikeTimer);
+    spikeTimer = setTimeout(() => loadSpikePreview(), 300);
   });
 }
 
-// ── Anomaly Detection ─────────────────────────────────
-const ANOMALY_DEVIATION = 20;
+// ── Data Cleanup ─────────────────────────────────────
+let cachedAnomalyIds = [];
+let cachedSpikeIds = [];
 
-async function handleAnomalyRemoval() {
-  const btn = document.getElementById('anomalyBtn');
-  btn.disabled = true;
-  btn.textContent = 'Scanning...';
+function openCleanupModal() {
+  document.getElementById('cleanupOverlay').style.display = 'flex';
+  switchCleanupTab('anomalies');
+}
 
-  try {
-    const previewRes = await fetch(`/api/anomalies?deviation=${ANOMALY_DEVIATION}`);
-    const preview = await previewRes.json();
+function closeCleanupModal() {
+  document.getElementById('cleanupOverlay').style.display = 'none';
+}
 
-    if (preview.count === 0) {
-      alert(`No anomalies detected. All prices are within ${ANOMALY_DEVIATION}% of the median.`);
-      btn.textContent = 'Remove Anomalies';
-      btn.disabled = false;
-      return;
-    }
+function switchCleanupTab(tab) {
+  document.querySelectorAll('.cleanup-tab').forEach((t) => {
+    const isActive = t.dataset.tab === tab;
+    t.style.borderBottomColor = isActive ? 'var(--primary, #004B87)' : 'transparent';
+    t.style.color = isActive ? 'var(--text-primary, #111)' : 'var(--text-secondary)';
+  });
+  document.getElementById('anomalyTab').style.display = tab === 'anomalies' ? '' : 'none';
+  document.getElementById('spikesTab').style.display = tab === 'spikes' ? '' : 'none';
 
-    const lines = preview.anomalies.map(
-      (a) => `${a.itemName} @ ${a.storeName}: AED ${a.price.toFixed(2)} (avg: AED ${a.trimmedMean.toFixed(2)})`
-    );
-    const msg = `Found ${preview.count} anomalous price(s) (>${ANOMALY_DEVIATION}% from median):\n\n` +
-      lines.slice(0, 20).join('\n') +
-      (lines.length > 20 ? `\n... and ${lines.length - 20} more` : '') +
-      '\n\nRemove these prices?';
-
-    if (!confirm(msg)) {
-      btn.textContent = 'Remove Anomalies';
-      btn.disabled = false;
-      return;
-    }
-
-    btn.textContent = 'Removing...';
-    const delRes = await fetch(`/api/anomalies?deviation=${ANOMALY_DEVIATION}`, { method: 'DELETE' });
-    const delResult = await delRes.json();
-
-    alert(`Removed ${delResult.removed} anomalous price(s).`);
-    await Promise.all([loadItems(), loadBasketChart()]);
-  } catch (err) {
-    console.error('Anomaly removal failed:', err);
-    alert('Failed to process anomalies. Check console for details.');
-  } finally {
-    btn.textContent = 'Remove Anomalies';
-    btn.disabled = false;
+  if (tab === 'anomalies') {
+    loadAnomalyPreview(parseInt(document.getElementById('anomalySlider').value));
+  } else {
+    loadSpikePreview();
   }
 }
 
-// ── View Anomalies List ───────────────────────────────
-async function handleViewAnomalies() {
-  const btn = document.getElementById('viewAnomalyBtn');
-  btn.disabled = true;
-  btn.textContent = 'Loading...';
+// ── Anomaly Preview ──────────────────────────────────
+async function loadAnomalyPreview(deviation) {
+  const listEl = document.getElementById('anomalyList');
+  listEl.innerHTML = '<p style="text-align:center;color:var(--text-secondary);padding:24px">Loading...</p>';
 
   try {
-    const res = await fetch(`/api/anomalies?deviation=${ANOMALY_DEVIATION}`);
+    const res = await fetch(`/api/anomalies?deviation=${deviation}`);
     const data = await res.json();
 
-    const listEl = document.getElementById('anomalyList');
-
-    if (data.count === 0) {
-      listEl.innerHTML = `<p style="text-align:center;color:var(--text-secondary);padding:32px">No anomalies found. All prices are within ${ANOMALY_DEVIATION}% of the median.</p>`;
-      document.getElementById('anomalyOverlay').style.display = 'flex';
+    if (!res.ok || !data.anomalies) {
+      listEl.innerHTML = `<p style="color:var(--negative);padding:16px">Server error: ${data.error || 'unknown'}. Try restarting the server.</p>`;
       return;
     }
 
-    // Group anomalies by item
+    cachedAnomalyIds = data.anomalies.map((a) => a.id);
+    const removeBtn = document.getElementById('removeAllAnomaliesBtn');
+    removeBtn.textContent = `Remove All (${data.count})`;
+    removeBtn.disabled = data.count === 0;
+
+    if (data.count === 0) {
+      listEl.innerHTML = `<p style="text-align:center;color:var(--text-secondary);padding:32px">No anomalies at ${deviation}% threshold.</p>`;
+      return;
+    }
+
     const byItem = {};
     for (const a of data.anomalies) {
       if (!byItem[a.itemName]) byItem[a.itemName] = [];
       byItem[a.itemName].push(a);
     }
 
-    let html = `<p style="margin-bottom:16px;color:var(--text-secondary);font-size:0.85rem">${data.count} anomalous price(s) found across ${Object.keys(byItem).length} item(s). Prices highlighted in red deviate more than ${ANOMALY_DEVIATION}% from the median (shown in gray).</p>`;
+    let html = `<p style="margin-bottom:16px;color:var(--text-secondary);font-size:0.85rem">${data.count} anomalous price(s) across ${Object.keys(byItem).length} item(s). Red = deviates >${deviation}% from median.</p>`;
     html += '<div style="display:flex;flex-direction:column;gap:12px">';
 
     for (const [itemName, anomalies] of Object.entries(byItem)) {
       const itemAnomalies = anomalies;
-      const trimmedMean = itemAnomalies[0].trimmedMean;
-
-      // Get all store prices for this item from the loaded items data
+      const median = itemAnomalies[0].trimmedMean;
       const itemData = items.find((i) => i.name === itemName);
-      let allPricesHtml = '';
+      let pricesHtml = '';
 
       if (itemData) {
-        allPricesHtml = stores.map((store) => {
+        pricesHtml = stores.map((store) => {
           const priceData = itemData.prices[store.id];
           if (!priceData || priceData.price <= 0) return '';
 
           const css = STORE_CSS[store.id];
           const isAnomaly = itemAnomalies.some((a) => a.storeId === store.id);
-          const deviationPct = ((Math.abs(priceData.price - trimmedMean) / trimmedMean) * 100).toFixed(1);
+          const devPct = ((Math.abs(priceData.price - median) / median) * 100).toFixed(1);
 
           const style = isAnomaly
             ? 'background:rgba(220,38,38,0.1);border:1px solid rgba(220,38,38,0.3);border-radius:6px;padding:4px 8px'
             : 'padding:4px 8px';
 
-          const anomalyEntry = isAnomaly ? itemAnomalies.find((a) => a.storeId === store.id) : null;
-          const deleteBtn = anomalyEntry
-            ? `<button onclick="deleteAnomaly(${anomalyEntry.id}, this)" title="Remove this price" style="background:none;border:none;cursor:pointer;color:var(--negative);font-size:1rem;padding:0 0 0 6px;line-height:1;opacity:0.7" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.7">&times;</button>`
+          const entry = isAnomaly ? itemAnomalies.find((a) => a.storeId === store.id) : null;
+          const delBtn = entry
+            ? `<button onclick="deletePriceEntry(${entry.id}, this, 'anomaly')" title="Remove" style="background:none;border:none;cursor:pointer;color:var(--negative);font-size:1rem;padding:0 0 0 6px;line-height:1;opacity:0.7" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.7">&times;</button>`
             : '';
 
-          return `<div style="display:flex;justify-content:space-between;align-items:center;font-size:0.85rem;${style}" ${anomalyEntry ? `data-anomaly-id="${anomalyEntry.id}"` : ''}>
+          return `<div style="display:flex;justify-content:space-between;align-items:center;font-size:0.85rem;${style}" ${entry ? `data-entry-id="${entry.id}"` : ''}>
             <span><span class="store-dot ${css}"></span>${STORE_NAMES[store.id]}</span>
             <span style="display:flex;align-items:center">
               <span style="font-weight:600;${isAnomaly ? 'color:var(--negative)' : ''}">AED ${priceData.price.toFixed(2)}</span>
-              ${isAnomaly ? `<span style="font-size:0.75rem;color:var(--negative);margin-left:6px">(${deviationPct}% off)</span>` : ''}
-              ${deleteBtn}
+              ${isAnomaly ? `<span style="font-size:0.75rem;color:var(--negative);margin-left:6px">(${devPct}% off)</span>` : ''}
+              ${delBtn}
             </span>
           </div>`;
         }).filter(Boolean).join('');
@@ -673,37 +679,88 @@ async function handleViewAnomalies() {
       html += `<div style="background:var(--card-bg);border-radius:var(--radius);padding:14px;box-shadow:var(--shadow);border-left:4px solid var(--negative)">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
           <span style="font-weight:600;font-size:0.95rem">${itemName}</span>
-          <span style="font-size:0.75rem;color:var(--text-secondary);background:var(--bg);padding:2px 8px;border-radius:4px">Median: AED ${trimmedMean.toFixed(2)}</span>
+          <span style="font-size:0.75rem;color:var(--text-secondary);background:var(--bg);padding:2px 8px;border-radius:4px">Median: AED ${median.toFixed(2)}</span>
         </div>
-        <div style="display:flex;flex-direction:column;gap:4px">${allPricesHtml}</div>
+        <div style="display:flex;flex-direction:column;gap:4px">${pricesHtml}</div>
       </div>`;
     }
 
     html += '</div>';
     listEl.innerHTML = html;
-    document.getElementById('anomalyOverlay').style.display = 'flex';
   } catch (err) {
     console.error('Failed to load anomalies:', err);
-    alert('Failed to load anomalies. Check console for details.');
-  } finally {
-    btn.textContent = 'View Anomalies';
-    btn.disabled = false;
+    listEl.innerHTML = '<p style="color:var(--negative);padding:16px">Failed to load anomalies.</p>';
   }
 }
 
-function closeAnomalyModal() {
-  document.getElementById('anomalyOverlay').style.display = 'none';
+// ── Spike Preview ────────────────────────────────────
+async function loadSpikePreview() {
+  const aed = document.getElementById('spikeAedSlider').value;
+  const pct = document.getElementById('spikePctSlider').value;
+  const listEl = document.getElementById('spikesList');
+  listEl.innerHTML = '<p style="text-align:center;color:var(--text-secondary);padding:24px">Loading...</p>';
+
+  try {
+    const res = await fetch(`/api/spikes?aed=${aed}&pct=${pct}`);
+    const data = await res.json();
+
+    if (!res.ok || !data.spikes) {
+      listEl.innerHTML = `<p style="color:var(--negative);padding:16px">Server error: ${data.error || 'unknown'}. Try restarting the server.</p>`;
+      return;
+    }
+
+    cachedSpikeIds = data.spikes.map((s) => s.id);
+    const removeBtn = document.getElementById('removeAllSpikesBtn');
+    removeBtn.textContent = `Remove All (${data.count})`;
+    removeBtn.disabled = data.count === 0;
+
+    if (data.count === 0) {
+      listEl.innerHTML = `<p style="text-align:center;color:var(--text-secondary);padding:32px">No price spikes exceeding AED ${aed} or ${pct}%.</p>`;
+      return;
+    }
+
+    let html = `<p style="margin-bottom:16px;color:var(--text-secondary);font-size:0.85rem">${data.count} suspicious price change(s) found (exceeding AED ${aed} or ${pct}%).</p>`;
+    html += '<div style="display:flex;flex-direction:column;gap:8px">';
+
+    for (const spike of data.spikes) {
+      const css = STORE_CSS[spike.storeId] || '';
+      const isUp = spike.changeAed > 0;
+      const arrow = isUp ? '&#9650;' : '&#9660;';
+      const color = isUp ? 'var(--negative, #dc2626)' : '#2563eb';
+      const bgColor = isUp ? 'rgba(220,38,38,0.06)' : 'rgba(37,99,235,0.06)';
+      const borderColor = isUp ? 'rgba(220,38,38,0.3)' : 'rgba(37,99,235,0.3)';
+
+      html += `<div style="background:${bgColor};border:1px solid ${borderColor};border-radius:8px;padding:10px 14px;display:flex;justify-content:space-between;align-items:center" data-entry-id="${spike.id}">
+        <div style="flex:1">
+          <div style="font-weight:600;font-size:0.9rem;margin-bottom:2px">${spike.itemName}</div>
+          <div style="font-size:0.8rem;color:var(--text-secondary)"><span class="store-dot ${css}"></span>${spike.storeName}</div>
+        </div>
+        <div style="text-align:right;display:flex;align-items:center;gap:12px">
+          <div>
+            <div style="font-size:0.8rem;color:var(--text-secondary)">AED ${spike.previousPrice.toFixed(2)} &rarr; <span style="font-weight:600;color:${color}">AED ${spike.price.toFixed(2)}</span></div>
+            <div style="font-size:0.8rem;color:${color};font-weight:600">${arrow} ${isUp ? '+' : ''}${spike.changeAed.toFixed(2)} (${isUp ? '+' : ''}${spike.changePct}%)</div>
+          </div>
+          <button onclick="deletePriceEntry(${spike.id}, this, 'spike')" title="Remove" style="background:none;border:none;cursor:pointer;color:${color};font-size:1.1rem;padding:0;line-height:1;opacity:0.7" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.7">&times;</button>
+        </div>
+      </div>`;
+    }
+
+    html += '</div>';
+    listEl.innerHTML = html;
+  } catch (err) {
+    console.error('Failed to load spikes:', err);
+    listEl.innerHTML = '<p style="color:var(--negative);padding:16px">Failed to load price spikes.</p>';
+  }
 }
 
-async function deleteAnomaly(id, btnEl) {
-  if (!confirm('Remove this anomalous price entry?')) return;
-
-  // Disable button while deleting
+// ── Shared delete for both anomalies and spikes ──────
+async function deletePriceEntry(id, btnEl, type) {
   btnEl.disabled = true;
   btnEl.style.opacity = 0.3;
 
+  const endpoint = type === 'spike' ? '/api/spikes' : '/api/anomalies';
   try {
-    const res = await fetch('/api/anomalies', {
+    const res = await fetch(endpoint, {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ids: [id] }),
@@ -711,33 +768,82 @@ async function deleteAnomaly(id, btnEl) {
     const result = await res.json();
 
     if (result.removed > 0) {
-      // Remove the row from the DOM
-      const row = btnEl.closest('[data-anomaly-id]');
+      const row = btnEl.closest('[data-entry-id]');
       if (row) {
         row.style.transition = 'opacity 0.3s';
         row.style.opacity = '0';
-        setTimeout(() => {
-          row.remove();
-
-          // Check if the parent item card has any anomaly rows left
-          // If not, update the card styling
-          const cards = document.querySelectorAll('#anomalyList [data-anomaly-id]');
-          const countEl = document.querySelector('#anomalyList p');
-          if (cards.length === 0 && countEl) {
-            countEl.textContent = 'All anomalies have been removed.';
-          }
-        }, 300);
+        setTimeout(() => row.remove(), 300);
       }
-
-      // Refresh dashboard data in the background
+      // Update cached IDs
+      if (type === 'spike') {
+        cachedSpikeIds = cachedSpikeIds.filter((i) => i !== id);
+        const btn = document.getElementById('removeAllSpikesBtn');
+        btn.textContent = `Remove All (${cachedSpikeIds.length})`;
+        btn.disabled = cachedSpikeIds.length === 0;
+      } else {
+        cachedAnomalyIds = cachedAnomalyIds.filter((i) => i !== id);
+        const btn = document.getElementById('removeAllAnomaliesBtn');
+        btn.textContent = `Remove All (${cachedAnomalyIds.length})`;
+        btn.disabled = cachedAnomalyIds.length === 0;
+      }
       await Promise.all([loadItems(), loadBasketChart()]);
-    } else {
-      alert('Price entry not found — it may have already been removed.');
     }
   } catch (err) {
-    console.error('Failed to delete anomaly:', err);
-    alert('Failed to remove anomaly. Check console for details.');
+    console.error('Failed to delete entry:', err);
     btnEl.disabled = false;
     btnEl.style.opacity = 0.7;
+  }
+}
+
+// ── Bulk remove ──────────────────────────────────────
+async function removeAllVisibleAnomalies() {
+  if (cachedAnomalyIds.length === 0) return;
+  if (!confirm(`Remove all ${cachedAnomalyIds.length} anomalous price(s)?`)) return;
+
+  const btn = document.getElementById('removeAllAnomaliesBtn');
+  btn.disabled = true;
+  btn.textContent = 'Removing...';
+
+  try {
+    const res = await fetch('/api/anomalies', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: cachedAnomalyIds }),
+    });
+    const result = await res.json();
+    cachedAnomalyIds = [];
+    btn.textContent = 'Remove All (0)';
+    document.getElementById('anomalyList').innerHTML = '<p style="text-align:center;color:var(--text-secondary);padding:32px">All anomalies removed.</p>';
+    await Promise.all([loadItems(), loadBasketChart()]);
+  } catch (err) {
+    console.error('Bulk anomaly removal failed:', err);
+    btn.disabled = false;
+    btn.textContent = `Remove All (${cachedAnomalyIds.length})`;
+  }
+}
+
+async function removeAllVisibleSpikes() {
+  if (cachedSpikeIds.length === 0) return;
+  if (!confirm(`Remove all ${cachedSpikeIds.length} suspicious price change(s)?`)) return;
+
+  const btn = document.getElementById('removeAllSpikesBtn');
+  btn.disabled = true;
+  btn.textContent = 'Removing...';
+
+  try {
+    const res = await fetch('/api/spikes', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: cachedSpikeIds }),
+    });
+    const result = await res.json();
+    cachedSpikeIds = [];
+    btn.textContent = 'Remove All (0)';
+    document.getElementById('spikesList').innerHTML = '<p style="text-align:center;color:var(--text-secondary);padding:32px">All spikes removed.</p>';
+    await Promise.all([loadItems(), loadBasketChart()]);
+  } catch (err) {
+    console.error('Bulk spike removal failed:', err);
+    btn.disabled = false;
+    btn.textContent = `Remove All (${cachedSpikeIds.length})`;
   }
 }
